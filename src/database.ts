@@ -11,7 +11,6 @@ if (!dbPath) {
   process.exit(1);
 }
 
-// Ensure the directory for the database file exists
 const dbDirectory = path.dirname(dbPath);
 if (!fs.existsSync(dbDirectory)) {
   fs.mkdirSync(dbDirectory, { recursive: true });
@@ -26,10 +25,24 @@ function initializeDatabase() {
       title TEXT NOT NULL,
       content TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      pinned INTEGER DEFAULT 0
     );
   `);
   console.log('Database schema initialized or already exists.');
+
+  // Check if 'pinned' column exists, and add it if not
+  try {
+    db.prepare("SELECT pinned FROM notes LIMIT 1").get();
+  } catch (error: any) {
+    if (error.message.includes('no such column: pinned')) {
+      console.log('Column "pinned" does not exist. Adding it now...');
+      db.exec(`ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0`);
+      console.log('Column "pinned" added successfully with default value 0.');
+    } else {
+      console.error('Error checking for "pinned" column:', error.message);
+    }
+  }
 }
 
 initializeDatabase();
