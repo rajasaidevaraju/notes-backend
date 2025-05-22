@@ -9,7 +9,7 @@ yarn-error.log*
 
 # TypeScript
 *.tsbuildinfo
-dist/ # Compiled JavaScript output
+dist/
 
 # Environment variables
 .env
