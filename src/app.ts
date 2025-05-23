@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express, { Request, Response } from 'express';
-import db from './database';
+import { db, initializeDatabase } from './database';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -25,13 +25,14 @@ app.get('/', (req: Request, res: Response) => {
 });
 
 app.get('/notes', (req: Request, res: Response) => {
-  try {
-    const notes = db.prepare<[], NoteRow[]>('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes').all();
-    res.json(notes);
-  } catch (error: any) {
-    console.error('Error fetching notes:', error.message);
-    res.status(500).json({ error: 'Failed to fetch notes' });
-  }
+  db.all('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes', [], (err: Error | null, rows: NoteRow[]) => {
+    if (err) {
+      console.error('Error fetching notes:', err.message);
+      res.status(500).json({ error: 'Failed to fetch notes' });
+      return;
+    }
+    res.json(rows);
+  });
 });
 
 app.post('/notes', (req: Request, res: Response) => {
@@ -42,7 +43,6 @@ app.post('/notes', (req: Request, res: Response) => {
     return;
   }
 
-  // Prevent creating a note with the special clipboard title
   if (title === CLIPBOARD_NOTE_TITLE) {
     res.status(400).json({ error: `Cannot create a note with the reserved title "${CLIPBOARD_NOTE_TITLE}".` });
     return;
@@ -50,16 +50,14 @@ app.post('/notes', (req: Request, res: Response) => {
 
   const pinnedValue = pinned ? 1 : 0;
 
-  try {
-    const stmt = db.prepare('INSERT INTO notes (title, content, pinned) VALUES (?, ?, ?)');
-    const info = stmt.run(title, content, pinnedValue);
-    res.status(201).json({ id: info.lastInsertRowid, title, content, pinned: pinnedValue });
-    return;
-  } catch (error: any) {
-    console.error('Error creating note:', error.message);
-    res.status(500).json({ error: 'Failed to create note' });
-    return;
-  }
+  db.run('INSERT INTO notes (title, content, pinned) VALUES (?, ?, ?)', [title, content, pinnedValue], function (err: Error | null) {
+    if (err) {
+      console.error('Error creating note:', err.message);
+      res.status(500).json({ error: 'Failed to create note' });
+      return;
+    }
+    res.status(201).json({ id: this.lastID, title, content, pinned: pinnedValue });
+  });
 });
 
 app.put('/notes/:id', (req: Request, res: Response) => {
@@ -71,109 +69,143 @@ app.put('/notes/:id', (req: Request, res: Response) => {
     return;
   }
 
-  try {
-    const noteToUpdate = db.prepare<[string], NoteRow>('SELECT title FROM notes WHERE id = ?').get(id);
+  db.get('SELECT title FROM notes WHERE id = ?', [id], (err: Error | null, row: NoteRow) => {
+    if (err) {
+      console.error('Error fetching note:', err.message);
+      res.status(500).json({ error: 'Failed to update note' });
+      return;
+    }
 
-    if (!noteToUpdate) {
+    if (!row) {
       res.status(404).json({ error: 'Note not found' });
       return;
     }
 
-    if (noteToUpdate.title === CLIPBOARD_NOTE_TITLE) {
-      // For the special clipboard note, only content can be updated, title must remain 'Clipboard', and it must remain pinned.
-      if (title !== CLIPBOARD_NOTE_TITLE || (typeof pinned !== 'undefined' && pinned !== 1)) {
+    if (row.title === CLIPBOARD_NOTE_TITLE) {
+      if (title !== CLIPBOARD_NOTE_TITLE || (typeof pinned !== 'undefined' && pinned !== true)) {
         res.status(403).json({ error: 'Cannot change title or unpin the special clipboard note.' });
         return;
       }
-      const stmt = db.prepare('UPDATE notes SET content = ? WHERE id = ?');
-      stmt.run(content, id);
+      db.run('UPDATE notes SET content = ? WHERE id = ?', [content, id], (err: Error | null) => {
+        if (err) {
+          console.error('Error updating note:', err.message);
+          res.status(500).json({ error: 'Failed to update note' });
+          return;
+        }
+        db.get('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes WHERE id = ?', [id], (err: Error | null, updatedNote: NoteRow) => {
+          if (err) {
+            console.error('Error fetching updated note:', err.message);
+            res.status(500).json({ error: 'Failed to fetch updated note' });
+            return;
+          }
+          res.json(updatedNote);
+        });
+      });
     } else {
-      // For regular notes, prevent updating title to the special clipboard title
       if (title === CLIPBOARD_NOTE_TITLE) {
         res.status(403).json({ error: `Cannot change note title to the reserved title "${CLIPBOARD_NOTE_TITLE}".` });
         return;
       }
 
-      let pinnedUpdateClause = '';
+      let query = 'UPDATE notes SET title = ?, content = ?';
       let params: (string | number)[] = [title, content];
 
       if (typeof pinned !== 'undefined') {
-        pinnedUpdateClause = ', pinned = ?';
+        query += ', pinned = ?';
         params.push(pinned ? 1 : 0);
       }
+      query += ' WHERE id = ?';
       params.push(id);
 
-      const stmt = db.prepare(`UPDATE notes SET title = ?, content = ? ${pinnedUpdateClause} WHERE id = ?`);
-      const info = stmt.run(...params);
-
-      if (info.changes === 0) {
-        res.status(404).json({ error: 'Note not found' });
-        return;
-      }
+      db.run(query, params, function (err: Error | null) {
+        if (err) {
+          console.error('Error updating note:', err.message);
+          res.status(500).json({ error: 'Failed to update note' });
+          return;
+        }
+        if (this.changes === 0) {
+          res.status(404).json({ error: 'Note not found' });
+          return;
+        }
+        db.get('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes WHERE id = ?', [id], (err: Error | null, updatedNote: NoteRow) => {
+          if (err) {
+            console.error('Error fetching updated note:', err.message);
+            res.status(500).json({ error: 'Failed to fetch updated note' });
+            return;
+          }
+          res.json(updatedNote);
+        });
+      });
     }
-
-    const updatedNote = db.prepare<[string], NoteRow>('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes WHERE id = ?').get(id);
-    res.json(updatedNote);
-    return;
-  } catch (error: any) {
-    console.error('Error updating note:', error.message);
-    res.status(500).json({ error: 'Failed to update note' });
-    return;
-  }
+  });
 });
 
 app.delete('/notes/:id', (req: Request, res: Response) => {
   const { id } = req.params;
 
-  try {
-    const noteToDelete = db.prepare<[string], NoteRow>('SELECT title FROM notes WHERE id = ?').get(id);
+  db.get('SELECT title FROM notes WHERE id = ?', [id], (err: Error | null, row: NoteRow) => {
+    if (err) {
+      console.error('Error fetching note:', err.message);
+      res.status(500).json({ error: 'Failed to delete note' });
+      return;
+    }
 
-    if (!noteToDelete) {
+    if (!row) {
       res.status(404).json({ error: 'Note not found' });
       return;
     }
 
-    if (noteToDelete.title === CLIPBOARD_NOTE_TITLE) {
+    if (row.title === CLIPBOARD_NOTE_TITLE) {
       res.status(403).json({ error: 'Cannot delete the special clipboard note.' });
       return;
     }
 
-    const stmt = db.prepare('DELETE FROM notes WHERE id = ?');
-    const info = stmt.run(id);
-
-    if (info.changes === 0) {
-      res.status(404).json({ error: 'Note not found' });
-      return;
-    }
-
-    res.status(204).send();
-    return;
-  } catch (error: any) {
-    console.error('Error deleting note:', error.message);
-    res.status(500).json({ error: 'Failed to delete note' });
-    return;
-  }
+    db.run('DELETE FROM notes WHERE id = ?', [id], function (err: Error | null) {
+      if (err) {
+        console.error('Error deleting note:', err.message);
+        res.status(500).json({ error: 'Failed to delete note' });
+        return;
+      }
+      if (this.changes === 0) {
+        res.status(404).json({ error: 'Note not found' });
+        return;
+      }
+      res.status(204).send();
+    });
+  });
 });
 
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
   console.log(`SQLite database file: ${process.env.DATABASE_PATH}`);
 
-  try {
-    const existingClipboardNote = db.prepare<[string], NoteRow>('SELECT id FROM notes WHERE title = ?').get(CLIPBOARD_NOTE_TITLE);
-    if (!existingClipboardNote) {
-      console.log(`Creating special clipboard note: "${CLIPBOARD_NOTE_TITLE}"`);
-      db.prepare('INSERT INTO notes (title, content, pinned) VALUES (?, ?, ?)').run(CLIPBOARD_NOTE_TITLE, '', 1);
-    } else {
-      console.log(`Special clipboard note "${CLIPBOARD_NOTE_TITLE}" already exists.`);
-    }
-  } catch (error: any) {
-    console.error('Error ensuring clipboard note exists:', error.message);
-  }
+  initializeDatabase(() => {
+    db.get('SELECT id FROM notes WHERE title = ?', [CLIPBOARD_NOTE_TITLE], (err: Error | null, row: NoteRow) => {
+      if (err) {
+        console.error('Error checking clipboard note:', err.message);
+        return;
+      }
+      if (!row) {
+        console.log(`Creating special clipboard note: "${CLIPBOARD_NOTE_TITLE}"`);
+        db.run('INSERT INTO notes (title, content, pinned) VALUES (?, ?, ?)', [CLIPBOARD_NOTE_TITLE, '', 1], (err: Error | null) => {
+          if (err) {
+            console.error('Error creating clipboard note:', err.message);
+          }
+        });
+      } else {
+        console.log(`Special clipboard note "${CLIPBOARD_NOTE_TITLE}" already exists.`);
+      }
+    });
+  });
 });
 
 process.on('SIGINT', () => {
-  db.close();
-  console.log('SQLite database connection closed.');
-  process.exit(0);
+  db.close((err: Error | null) => {
+    if (err) {
+      console.error('Error closing SQLite database:', err.message);
+    } else {
+      console.log('SQLite database connection closed.');
+    }
+    process.exit(0);
+  });
 });
