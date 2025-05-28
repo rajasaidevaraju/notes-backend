@@ -140,6 +140,69 @@ app.put('/notes/:id', (req: Request, res: Response) => {
   });
 });
 
+app.delete('/notes/batch', (req: Request, res: Response) => {
+  const { ids } = req.body;
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    res.status(400).json({ error: 'An array of note IDs is required for batch deletion.' });
+    return;
+  }
+
+  // Validate IDs and check for clipboard note
+  const invalidIds = ids.filter(id => typeof id !== 'number' || !Number.isInteger(id) || id <= 0);
+  if (invalidIds.length > 0) {
+    res.status(400).json({ error: 'All provided IDs must be positive integers.', invalidIds });
+    return;
+  }
+
+  // Fetch titles of notes to be deleted to check for the clipboard note
+  const placeholders = ids.map(() => '?').join(',');
+  db.all(`SELECT id, title FROM notes WHERE id IN (${placeholders})`, ids, (err: Error | null, rows: NoteRow[]) => {
+    if (err) {
+      console.error('Error checking notes for batch deletion:', err.message);
+      res.status(500).json({ error: 'Failed to prepare for batch deletion.' });
+      return;
+    }
+
+    const notesToDelete = rows.map(row => row.id);
+    const clipboardNoteFound = rows.some(row => row.title === CLIPBOARD_NOTE_TITLE);
+
+    if (clipboardNoteFound) {
+      res.status(403).json({ error: 'Cannot delete the special clipboard note in a batch operation.' });
+      return;
+
+    }
+
+    if (notesToDelete.length === 0) {
+      res.status(404).json({ message: 'No valid notes found for deletion.' });
+      return;
+
+    }
+
+    // Perform batch deletion within a transaction for atomicity
+    db.serialize(() => {
+      db.run('BEGIN TRANSACTION;');
+      const deletePlaceholders = notesToDelete.map(() => '?').join(',');
+      db.run(`DELETE FROM notes WHERE id IN (${deletePlaceholders})`, notesToDelete, function (deleteErr: Error | null) {
+        if (deleteErr) {
+          console.error('Error during batch deletion transaction:', deleteErr.message);
+          db.run('ROLLBACK;'); // Rollback on error
+          res.status(500).json({ error: 'Failed to perform batch deletion.' });
+          return;
+        }
+        db.run('COMMIT;', (commitErr: Error | null) => {
+          if (commitErr) {
+            console.error('Error committing batch deletion transaction:', commitErr.message);
+            res.status(500).json({ error: 'Failed to finalize batch deletion.' });
+            return;
+          }
+          res.status(200).json({ message: `Successfully deleted ${this.changes} notes.`, deletedIds: notesToDelete });
+        });
+      });
+    });
+  });
+});
+
 app.delete('/notes/:id', (req: Request, res: Response) => {
   const { id } = req.params;
 
