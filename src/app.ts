@@ -3,6 +3,7 @@ dotenv.config();
 
 import express, { Request, Response } from 'express';
 import { db, initializeDatabase } from './database';
+import os from 'os'; 
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,6 +23,28 @@ app.use(express.json());
 
 app.get('/', (req: Request, res: Response) => {
   res.send('Hello from Express with TypeScript and SQLite!');
+});
+
+app.get('/server-ip', (req: Request, res: Response) => {
+  const networkInterfaces = os.networkInterfaces();
+  let serverIpAddress = 'Not Found';
+
+  for (const interfaceName in networkInterfaces) {
+    const networkInterface = networkInterfaces[interfaceName];
+    if (networkInterface) {
+      for (const alias of networkInterface) {
+        if (alias.family === 'IPv4' && !alias.internal) {
+          serverIpAddress = alias.address;
+          break;
+        }
+      }
+    }
+    if (serverIpAddress !== 'Not Found') {
+      break;
+    }
+  }
+
+  res.json({ ip: serverIpAddress });
 });
 
 app.get('/notes', (req: Request, res: Response) => {
@@ -80,9 +103,9 @@ app.put('/notes/:id', (req: Request, res: Response) => {
       res.status(404).json({ error: 'Note not found' });
       return;
     }
-
+    
     if (row.title === CLIPBOARD_NOTE_TITLE) {
-      if (title !== CLIPBOARD_NOTE_TITLE || (typeof pinned !== 'undefined' && pinned !== true)) {
+      if (title !== CLIPBOARD_NOTE_TITLE || (typeof pinned !== 'undefined' && pinned !== 1)) {
         res.status(403).json({ error: 'Cannot change title or unpin the special clipboard note.' });
         return;
       }
