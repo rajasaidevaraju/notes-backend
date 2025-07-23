@@ -4,6 +4,7 @@ dotenv.config();
 import express, { Request, Response } from 'express';
 import { db, initializeDatabase } from './database';
 import os from 'os'; 
+import { error } from 'console';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -16,6 +17,7 @@ interface NoteRow {
   content: string | null;
   createdAt: string;
   updatedAt: string;
+  hidden: number;
   pinned: number;
 }
 
@@ -48,7 +50,7 @@ app.get('/server-ip', (req: Request, res: Response) => {
 });
 
 app.get('/notes', (req: Request, res: Response) => {
-  db.all('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes', [], (err: Error | null, rows: NoteRow[]) => {
+  db.all('SELECT id, title, content, createdAt, updatedAt, pinned,hidden FROM notes WHERE hidden = 0', [], (err: Error | null, rows: NoteRow[]) => {
     if (err) {
       console.error('Error fetching notes:', err.message);
       res.status(500).json({ error: 'Failed to fetch notes' });
@@ -58,8 +60,34 @@ app.get('/notes', (req: Request, res: Response) => {
   });
 });
 
+app.get('/notes/hidden', (req: Request, res: Response) => {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Authorization header missing or malformed' });
+      return;
+  }
+
+  const pin = authHeader.split(' ')[1];
+  const correctPin = process.env.HIDDEN_NOTES_PIN;
+
+  if (!pin || pin !== correctPin) {
+    res.json([]);
+    return;
+  }
+
+  db.all('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE hidden = 1', [], (err, rows: NoteRow[]) => {
+    if (err) {
+      console.error('Error fetching hidden notes:', err.message);
+      res.status(500).json({ error: 'Failed to fetch hidden notes' });
+    }else{
+      res.json(rows);
+    }
+    
+  });
+});
+
 app.post('/notes', (req: Request, res: Response) => {
-  const { title, content, pinned } = req.body;
+  const { title, content, pinned, hidden  } = req.body;
 
   if (!title) {
     res.status(400).json({ error: 'Title is required' });
@@ -72,8 +100,9 @@ app.post('/notes', (req: Request, res: Response) => {
   }
 
   const pinnedValue = pinned ? 1 : 0;
+  const hiddenValue = hidden ? 1 : 0;
 
-  db.run('INSERT INTO notes (title, content, pinned) VALUES (?, ?, ?)', [title, content, pinnedValue], function (err: Error | null) {
+  db.run('INSERT INTO notes (title, content, pinned, hidden) VALUES (?, ?, ?, ?)', [title, content, pinnedValue, hiddenValue], function (err: Error | null) {
     if (err) {
       console.error('Error creating note:', err.message);
       res.status(500).json({ error: 'Failed to create note' });
@@ -85,7 +114,7 @@ app.post('/notes', (req: Request, res: Response) => {
 
 app.put('/notes/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  const { title, content, pinned } = req.body;
+  const { title, content, pinned, hidden } = req.body;
 
   if (!title) {
     res.status(400).json({ error: 'Title is required' });
@@ -115,7 +144,7 @@ app.put('/notes/:id', (req: Request, res: Response) => {
           res.status(500).json({ error: 'Failed to update note' });
           return;
         }
-        db.get('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes WHERE id = ?', [id], (err: Error | null, updatedNote: NoteRow) => {
+        db.get('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id], (err: Error | null, updatedNote: NoteRow) => {
           if (err) {
             console.error('Error fetching updated note:', err.message);
             res.status(500).json({ error: 'Failed to fetch updated note' });
@@ -137,6 +166,14 @@ app.put('/notes/:id', (req: Request, res: Response) => {
         query += ', pinned = ?';
         params.push(pinned ? 1 : 0);
       }
+      if (typeof hidden !== 'undefined') {
+        if(row.hidden === 1 && hidden === 0){
+          res.status(403).json({error:"Unhide operation requires PIN verification. Use the /notes/:id/unhide endpoint."})
+          return;
+        }
+        query += ', hidden = ?';
+        params.push(hidden ? 1 : 0);
+      }
       query += ' WHERE id = ?';
       params.push(id);
 
@@ -150,7 +187,7 @@ app.put('/notes/:id', (req: Request, res: Response) => {
           res.status(404).json({ error: 'Note not found' });
           return;
         }
-        db.get('SELECT id, title, content, createdAt, updatedAt, pinned FROM notes WHERE id = ?', [id], (err: Error | null, updatedNote: NoteRow) => {
+        db.get('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id], (err: Error | null, updatedNote: NoteRow) => {
           if (err) {
             console.error('Error fetching updated note:', err.message);
             res.status(500).json({ error: 'Failed to fetch updated note' });
@@ -160,6 +197,55 @@ app.put('/notes/:id', (req: Request, res: Response) => {
         });
       });
     }
+  });
+});
+
+app.put('/notes/:id/unhide', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({ error: 'Authorization header missing or malformed' });
+      return;
+  }
+
+  const pin = authHeader.split(' ')[1];
+  const correctPin = process.env.HIDDEN_NOTES_PIN;
+
+  if (!pin || pin !== correctPin) {
+    res.send(403).json({error:"Invalid PIN"});
+    return;
+  }
+
+  db.get('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id], (err: Error | null, note: NoteRow) => {
+    if (err) {
+      console.error('Error fetching note for unhide:', err.message);
+      return res.status(500).json({ error: 'Failed to unhide note' });
+    }
+    if (!note) {
+      return res.status(404).json({ error: 'Note not found' });
+    }
+    if (note.hidden==0) {
+      return res.status(400).json({ error: 'Note is not hidden' });
+    }
+
+    db.run('UPDATE notes SET hidden = 0, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id], function (err: Error | null) {
+      if (err) {
+        console.error('Error unhiding note:', err.message);
+        return res.status(500).json({ error: 'Failed to unhide note' });
+      }
+      if (this.changes === 0) {
+        return res.status(404).json({ error: 'Note not found or already unhidden' });
+      }
+
+      
+      db.get('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id], (err: Error | null, unhiddenNote: NoteRow) => {
+        if (err) {
+          console.error('Error fetching unhidden note:', err.message);
+          return res.status(500).json({ error: 'Failed to fetch unhidden note' });
+        }
+        res.json(unhiddenNote);
+      });
+    });
   });
 });
 
@@ -202,7 +288,7 @@ app.delete('/notes/batch', (req: Request, res: Response) => {
 
     }
 
-    // Perform batch deletion within a transaction for atomicity
+    
     db.serialize(() => {
       db.run('BEGIN TRANSACTION;');
       const deletePlaceholders = notesToDelete.map(() => '?').join(',');

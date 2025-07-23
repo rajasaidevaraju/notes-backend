@@ -30,7 +30,8 @@ function initializeDatabase(callback: () => void) {
       content TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
-      pinned INTEGER DEFAULT 0
+      pinned INTEGER DEFAULT 0,
+      hidden INTEGER DEFAULT 0
     );
   `, (err: Error | null) => {
     if (err) {
@@ -64,6 +65,20 @@ function initializeDatabase(callback: () => void) {
               console.error('Error adding pinned column:', err.message);
             } else {
               console.log('Column "pinned" added successfully with default value 0.');
+            }
+            callback();
+          });
+        } else {
+          callback();
+        }
+        const hasHidden = rows.some(row => row.name === 'hidden');
+        if (!hasHidden) {
+          console.log('Column "hidden" does not exist. Adding it now...');
+          db.run(`ALTER TABLE notes ADD COLUMN hidden INTEGER DEFAULT 0`, (err: Error | null) => {
+            if (err) {
+              console.error('Error adding hidden column:', err.message);
+            } else {
+              console.log('Column "hidden" added successfully with default value 0.');
             }
             callback();
           });
