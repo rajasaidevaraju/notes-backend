@@ -155,7 +155,8 @@ app.put('/notes/:id', (req: Request, res: Response) => {
     return;
   }
 
-  db.get('SELECT title FROM notes WHERE id = ?', [id], (err: Error | null, row: NoteRow) => {
+
+  db.get('SELECT title, hidden FROM notes WHERE id = ?', [id], (err: Error | null, row: NoteRow) => {
     if (err) {
       console.error('Error fetching note:', err.message);
       res.status(500).json({ error: 'Failed to update note' });
@@ -166,7 +167,6 @@ app.put('/notes/:id', (req: Request, res: Response) => {
       res.status(404).json({ error: 'Note not found' });
       return;
     }
-
     if(row.hidden === 1){
       const cookiePin = req.cookies?.auth_pin;
       const correctPin = process.env.HIDDEN_NOTES_PIN;
@@ -256,7 +256,7 @@ app.delete('/notes/batch', (req: Request, res: Response) => {
 
   // Fetch titles of notes to be deleted to check for the clipboard note
   const placeholders = ids.map(() => '?').join(',');
-  db.all(`SELECT id, title FROM notes WHERE id IN (${placeholders})`, ids, (err: Error | null, rows: NoteRow[]) => {
+  db.all(`SELECT id, title, hidden FROM notes WHERE id IN (${placeholders})`, ids, (err: Error | null, rows: NoteRow[]) => {
     if (err) {
       console.error('Error checking notes for batch deletion:', err.message);
       res.status(500).json({ error: 'Failed to prepare for batch deletion.' });
@@ -322,7 +322,7 @@ app.delete('/notes/batch', (req: Request, res: Response) => {
 app.delete('/notes/:id', (req: Request, res: Response) => {
   const { id } = req.params;
 
-  db.get('SELECT title FROM notes WHERE id = ?', [id], (err: Error | null, row: NoteRow) => {
+  db.get('SELECT title,hidden FROM notes WHERE id = ?', [id], (err: Error | null, row: NoteRow) => {
     if (err) {
       console.error('Error fetching note:', err.message);
       res.status(500).json({ error: 'Failed to delete note' });
