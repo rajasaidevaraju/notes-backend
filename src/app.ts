@@ -5,6 +5,7 @@ import express, { Request, Response } from 'express';
 import { db, initializeDatabase } from './database';
 import os from 'os'; 
 import { error } from 'console';
+import cookieParser from 'cookie-parser';
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,10 +23,49 @@ interface NoteRow {
 }
 
 app.use(express.json());
+app.use(cookieParser());
 
 app.get('/', (req: Request, res: Response) => {
   res.send('Hello from Express with TypeScript and SQLite!');
 });
+
+app.post('/auth', (req: Request, res: Response) => {
+  const { pin } = req.body;
+  const correctPin = process.env.HIDDEN_NOTES_PIN;
+
+  if (!pin || pin !== correctPin) {
+    res.status(403).json({ error: 'Invalid PIN' });
+    return;
+  }
+
+  res.cookie('auth_pin', pin, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: false,
+    maxAge: 24 * 60 * 60 * 1000,
+  });
+
+  res.status(200).json({ message: 'Authenticated successfully' });
+});
+
+app.get('/auth/status', (req: Request, res: Response) => {
+  const pin = req.cookies['auth_token'];
+  const correctPin = process.env.HIDDEN_NOTES_PIN;
+
+  if (pin && pin === correctPin) {
+    res.json({ loggedIn: true });
+  } else {
+    res.json({ loggedIn: false });
+  }
+});
+
+
+
+app.post('/logout', (req: Request, res: Response) => {
+  res.clearCookie('auth_pin');
+  res.status(200).json({ message: 'Logged out successfully' });
+});
+
 
 app.get('/server-ip', (req: Request, res: Response) => {
   const networkInterfaces = os.networkInterfaces();
@@ -61,16 +101,10 @@ app.get('/notes', (req: Request, res: Response) => {
 });
 
 app.get('/notes/hidden', (req: Request, res: Response) => {
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Authorization header missing or malformed' });
-      return;
-  }
-
-  const pin = authHeader.split(' ')[1];
+  const cookiePin = req.cookies?.auth_pin;
   const correctPin = process.env.HIDDEN_NOTES_PIN;
 
-  if (!pin || pin !== correctPin) {
+  if (!cookiePin || cookiePin !== correctPin) {
     res.json([]);
     return;
   }
@@ -132,6 +166,15 @@ app.put('/notes/:id', (req: Request, res: Response) => {
       res.status(404).json({ error: 'Note not found' });
       return;
     }
+
+    if(row.hidden === 1){
+      const cookiePin = req.cookies?.auth_pin;
+      const correctPin = process.env.HIDDEN_NOTES_PIN;
+      if (!cookiePin || cookiePin !== correctPin) {
+        res.status(403).json({ error: 'Unauthorized. Valid PIN required to modify hidden note.' });
+        return;
+      }
+    }
     
     if (row.title === CLIPBOARD_NOTE_TITLE) {
       if (title !== CLIPBOARD_NOTE_TITLE || (typeof pinned !== 'undefined' && pinned !== 1)) {
@@ -167,10 +210,6 @@ app.put('/notes/:id', (req: Request, res: Response) => {
         params.push(pinned ? 1 : 0);
       }
       if (typeof hidden !== 'undefined') {
-        if(row.hidden === 1 && hidden === 0){
-          res.status(403).json({error:"Unhide operation requires PIN verification. Use the /notes/:id/unhide endpoint."})
-          return;
-        }
         query += ', hidden = ?';
         params.push(hidden ? 1 : 0);
       }
@@ -200,55 +239,6 @@ app.put('/notes/:id', (req: Request, res: Response) => {
   });
 });
 
-app.put('/notes/:id/unhide', (req: Request, res: Response) => {
-  const { id } = req.params;
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      res.status(401).json({ error: 'Authorization header missing or malformed' });
-      return;
-  }
-
-  const pin = authHeader.split(' ')[1];
-  const correctPin = process.env.HIDDEN_NOTES_PIN;
-
-  if (!pin || pin !== correctPin) {
-    res.send(403).json({error:"Invalid PIN"});
-    return;
-  }
-
-  db.get('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id], (err: Error | null, note: NoteRow) => {
-    if (err) {
-      console.error('Error fetching note for unhide:', err.message);
-      return res.status(500).json({ error: 'Failed to unhide note' });
-    }
-    if (!note) {
-      return res.status(404).json({ error: 'Note not found' });
-    }
-    if (note.hidden==0) {
-      return res.status(400).json({ error: 'Note is not hidden' });
-    }
-
-    db.run('UPDATE notes SET hidden = 0, updatedAt = CURRENT_TIMESTAMP WHERE id = ?', [id], function (err: Error | null) {
-      if (err) {
-        console.error('Error unhiding note:', err.message);
-        return res.status(500).json({ error: 'Failed to unhide note' });
-      }
-      if (this.changes === 0) {
-        return res.status(404).json({ error: 'Note not found or already unhidden' });
-      }
-
-      
-      db.get('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id], (err: Error | null, unhiddenNote: NoteRow) => {
-        if (err) {
-          console.error('Error fetching unhidden note:', err.message);
-          return res.status(500).json({ error: 'Failed to fetch unhidden note' });
-        }
-        res.json(unhiddenNote);
-      });
-    });
-  });
-});
-
 app.delete('/notes/batch', (req: Request, res: Response) => {
   const { ids } = req.body;
 
@@ -257,7 +247,7 @@ app.delete('/notes/batch', (req: Request, res: Response) => {
     return;
   }
 
-  // Validate IDs and check for clipboard note
+  // Validate IDs
   const invalidIds = ids.filter(id => typeof id !== 'number' || !Number.isInteger(id) || id <= 0);
   if (invalidIds.length > 0) {
     res.status(400).json({ error: 'All provided IDs must be positive integers.', invalidIds });
@@ -271,6 +261,23 @@ app.delete('/notes/batch', (req: Request, res: Response) => {
       console.error('Error checking notes for batch deletion:', err.message);
       res.status(500).json({ error: 'Failed to prepare for batch deletion.' });
       return;
+    }
+
+    let hiddenNote=false;
+    for(const row of rows){
+      if(row.hidden==1){
+        hiddenNote=true;
+        break;
+      }
+    }
+
+    if(hiddenNote){
+       const cookiePin = req.cookies?.auth_pin;
+      const correctPin = process.env.HIDDEN_NOTES_PIN;
+      if (!cookiePin || cookiePin !== correctPin) {
+        res.status(403).json({ error: 'Unauthorized. Valid PIN required to delete a hidden note.' });
+        return;
+      }
     }
 
     const notesToDelete = rows.map(row => row.id);
@@ -325,6 +332,15 @@ app.delete('/notes/:id', (req: Request, res: Response) => {
     if (!row) {
       res.status(404).json({ error: 'Note not found' });
       return;
+    }
+
+    if(row.hidden === 1){
+      const cookiePin = req.cookies?.auth_pin;
+      const correctPin = process.env.HIDDEN_NOTES_PIN;
+      if (!cookiePin || cookiePin !== correctPin) {
+        res.status(403).json({ error: 'Unauthorized. Valid PIN required to delete a hidden note.' });
+        return;
+      }
     }
 
     if (row.title === CLIPBOARD_NOTE_TITLE) {
