@@ -1,0 +1,1 @@
+export const CLIPBOARD_NOTE_TITLE = 'Clipboard';
