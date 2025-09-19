@@ -173,3 +173,16 @@ curl -X PUT http://localhost:3000/notes/1 \
 ```bash
 curl -X DELETE http://localhost:3000/notes/2
 ```
+
+## Using a Dummy Database for Testing
+
+To avoid affecting your original data, you can create a dummy SQLite database (`test.db`) for testing new features.
+
+Run the following command:
+
+```bash
+npm run testdb
+```
+This will create (or overwrite) a test.db file with sample data.
+
+Next, in your .env file, update DATABASE_PATH to point to the dummy database:

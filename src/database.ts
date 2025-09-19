@@ -22,7 +22,7 @@ const db = new sqlite3.Database(dbPath, (err: Error | null) => {
   }
 });
 
-function initializeDatabase(callback: () => void) {
+function initializeDatabase(db:sqlite3.Database,callback: (err: Error | null) => void) {
   db.run(`
     CREATE TABLE IF NOT EXISTS notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,25 +36,26 @@ function initializeDatabase(callback: () => void) {
   `, (err: Error | null) => {
     if (err) {
       console.error('Error creating table:', err.message);
-      callback();
+      callback(err);
       return;
     }
     console.log('Database schema initialized or already exists.');
     db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='notes'", (err: Error | null, row: any) => {
       if (err) {
         console.error('Error checking table existence:', err.message);
-        callback();
+        callback(err);
         return;
       }
       if (!row) {
         console.error('Table "notes" does not exist after creation attempt.');
-        callback();
+        callback(new Error('Table "notes" does not exist after creation attempt.'));
         return;
       }
       db.all("PRAGMA table_info(notes)", (err: Error | null, rows: any[]) => {
         if (err || !rows) {
+          var message = err ? err.message : 'No rows returned';
           console.error('Error checking table schema:', err ? err.message : 'No rows returned');
-          callback();
+          callback(new Error(message));
           return;
         }
         const hasPinned = rows.some(row => row.name === 'pinned');
@@ -63,13 +64,13 @@ function initializeDatabase(callback: () => void) {
           db.run(`ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0`, (err: Error | null) => {
             if (err) {
               console.error('Error adding pinned column:', err.message);
+              callback(err);
+              return;
             } else {
               console.log('Column "pinned" added successfully with default value 0.');
             }
-            callback();
+           
           });
-        } else {
-          callback();
         }
         const hasHidden = rows.some(row => row.name === 'hidden');
         if (!hasHidden) {
@@ -77,14 +78,14 @@ function initializeDatabase(callback: () => void) {
           db.run(`ALTER TABLE notes ADD COLUMN hidden INTEGER DEFAULT 0`, (err: Error | null) => {
             if (err) {
               console.error('Error adding hidden column:', err.message);
+              callback(err);
+              return;
             } else {
               console.log('Column "hidden" added successfully with default value 0.');
             }
-            callback();
           });
-        } else {
-          callback();
         }
+        callback(null);
       });
     });
   });

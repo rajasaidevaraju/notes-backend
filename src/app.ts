@@ -41,7 +41,7 @@ app.delete('/notes/batch', NotesController.deleteBatchNotes);
 app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
   
-  initializeDatabase(() => {
+  initializeDatabase(db,() => {
     db.get('SELECT id FROM notes WHERE title = ?', [CLIPBOARD_NOTE_TITLE], (err: Error | null, row: NoteRow) => {
       if (err) {
         return console.error('Error checking clipboard note:', err.message);
