@@ -22,8 +22,27 @@ const db = new sqlite3.Database(dbPath, (err: Error | null) => {
   }
 });
 
-function initializeDatabase(db:sqlite3.Database,callback: (err: Error | null) => void) {
-  db.run(`
+function addColumnIfNotExists(db: sqlite3.Database, tableName: string, columnName: string, columnDef: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    db.all(`PRAGMA table_info(${tableName})`, (err, rows: any[]) => {
+      if (err) return reject(err);
+      const exists = rows.some(row => row.name === columnName);
+      if (!exists) {
+        console.log(`Column "${columnName}" does not exist in ${tableName}. Adding it now...`);
+        db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`, (err) => {
+          if (err) return reject(err);
+          console.log(`Column "${columnName}" added to ${tableName}.`);
+          resolve();
+        });
+      } else {
+        resolve();
+      }
+    });
+  });
+}
+
+function initializeDatabase(db: sqlite3.Database, callback: (err: Error | null) => void) {
+  db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       title TEXT NOT NULL,
@@ -33,62 +52,75 @@ function initializeDatabase(db:sqlite3.Database,callback: (err: Error | null) =>
       pinned INTEGER DEFAULT 0,
       hidden INTEGER DEFAULT 0
     );
+
+    CREATE TABLE IF NOT EXISTS checklists (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      pinned INTEGER DEFAULT 0,
+      hidden INTEGER DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS checklist_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      checklistId INTEGER,
+      content TEXT NOT NULL,
+      checked INTEGER DEFAULT 0,
+      position INTEGER DEFAULT 0,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (checklistId) REFERENCES checklists(id) ON DELETE CASCADE
+    );
   `, (err: Error | null) => {
     if (err) {
-      console.error('Error creating table:', err.message);
+      console.error('Error creating tables:', err.message);
       callback(err);
       return;
     }
     console.log('Database schema initialized or already exists.');
-    db.get("SELECT name FROM sqlite_master WHERE type='table' AND name='notes'", (err: Error | null, row: any) => {
-      if (err) {
-        console.error('Error checking table existence:', err.message);
+
+    const migrations = [
+      addColumnIfNotExists(db, 'notes', 'pinned', 'INTEGER DEFAULT 0'),
+      addColumnIfNotExists(db, 'notes', 'hidden', 'INTEGER DEFAULT 0'),
+      addColumnIfNotExists(db, 'checklists', 'pinned', 'INTEGER DEFAULT 0'),
+      addColumnIfNotExists(db, 'checklists', 'hidden', 'INTEGER DEFAULT 0'),
+    ];
+
+    Promise.all(migrations)
+      .then(() => callback(null))
+      .catch(err => {
+        console.error('Error performing migrations:', err);
         callback(err);
-        return;
-      }
-      if (!row) {
-        console.error('Table "notes" does not exist after creation attempt.');
-        callback(new Error('Table "notes" does not exist after creation attempt.'));
-        return;
-      }
-      db.all("PRAGMA table_info(notes)", (err: Error | null, rows: any[]) => {
-        if (err || !rows) {
-          var message = err ? err.message : 'No rows returned';
-          console.error('Error checking table schema:', err ? err.message : 'No rows returned');
-          callback(new Error(message));
-          return;
-        }
-        const hasPinned = rows.some(row => row.name === 'pinned');
-        if (!hasPinned) {
-          console.log('Column "pinned" does not exist. Adding it now...');
-          db.run(`ALTER TABLE notes ADD COLUMN pinned INTEGER DEFAULT 0`, (err: Error | null) => {
-            if (err) {
-              console.error('Error adding pinned column:', err.message);
-              callback(err);
-              return;
-            } else {
-              console.log('Column "pinned" added successfully with default value 0.');
-            }
-           
-          });
-        }
-        const hasHidden = rows.some(row => row.name === 'hidden');
-        if (!hasHidden) {
-          console.log('Column "hidden" does not exist. Adding it now...');
-          db.run(`ALTER TABLE notes ADD COLUMN hidden INTEGER DEFAULT 0`, (err: Error | null) => {
-            if (err) {
-              console.error('Error adding hidden column:', err.message);
-              callback(err);
-              return;
-            } else {
-              console.log('Column "hidden" added successfully with default value 0.');
-            }
-          });
-        }
-        callback(null);
       });
-    });
   });
 }
+
+export const dbQuery = (sql: string, params: any[] = []): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, (err, rows) => {
+      if (err) reject(err);
+      else resolve(rows);
+    });
+  });
+};
+
+export const dbGet = (sql: string, params: any[] = []): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    db.get(sql, params, (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+};
+
+export const dbRun = (sql: string, params: any[] = []): Promise<{ lastID: number; changes: number }> => {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) reject(err);
+      else resolve({ lastID: this.lastID, changes: this.changes });
+    });
+  });
+};
 
 export { db, initializeDatabase };
