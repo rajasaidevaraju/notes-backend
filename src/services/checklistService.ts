@@ -1,40 +1,40 @@
-import { dbQuery, dbRun, dbGet, db } from '../database';
+import { dbQuery, dbRun, dbGet } from '../database';
 import { ChecklistRow, ChecklistItemRow } from '../types/checklists';
 
 export class ChecklistService {
 
     static async getAllVisibleChecklists(): Promise<ChecklistRow[]> {
         const query = `
-      SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
-      FROM checklists c
-      LEFT JOIN checklist_items ci ON c.id = ci.checklistId
-      WHERE c.hidden = 0
-      ORDER BY c.pinned DESC, c.createdAt DESC, ci.position ASC
-    `;
+            SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
+            FROM checklists c
+            LEFT JOIN checklist_items ci ON c.id = ci.checklistId
+            WHERE c.hidden = 0
+            ORDER BY c.pinned DESC, c.createdAt DESC, ci.position ASC
+        `;
         const rows = await dbQuery(query);
         return ChecklistService.formatChecklistRows(rows);
     }
 
     static async getHiddenChecklists(): Promise<ChecklistRow[]> {
         const query = `
-      SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
-      FROM checklists c
-      LEFT JOIN checklist_items ci ON c.id = ci.checklistId
-      WHERE c.hidden = 1
-      ORDER BY c.pinned DESC, c.createdAt DESC, ci.position ASC
-    `;
+            SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
+            FROM checklists c
+            LEFT JOIN checklist_items ci ON c.id = ci.checklistId
+            WHERE c.hidden = 1
+            ORDER BY c.pinned DESC, c.createdAt DESC, ci.position ASC
+        `;
         const rows = await dbQuery(query);
         return ChecklistService.formatChecklistRows(rows);
     }
 
     static async getChecklistById(id: number): Promise<ChecklistRow | null> {
         const query = `
-      SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
-      FROM checklists c
-      LEFT JOIN checklist_items ci ON c.id = ci.checklistId
-      WHERE c.id = ?
-      ORDER BY ci.position ASC
-    `;
+            SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
+            FROM checklists c
+            LEFT JOIN checklist_items ci ON c.id = ci.checklistId
+            WHERE c.id = ?
+            ORDER BY ci.position ASC
+        `;
         const rows = await dbQuery(query, [id]);
         if (rows.length === 0) return null;
         const formatted = ChecklistService.formatChecklistRows(rows);
@@ -133,9 +133,13 @@ export class ChecklistService {
         }
     }
 
-    static async deleteChecklist(id: string | number): Promise<void> {
+    static async deleteChecklist(id: string | number, isAuthenticated: boolean): Promise<void> {
         const row = await dbGet('SELECT hidden FROM checklists WHERE id = ?', [id]);
         if (!row) throw new Error('Checklist not found');
+
+        if (row.hidden === 1 && !isAuthenticated) {
+            throw new Error('Unauthorized. Valid PIN required to delete a hidden checklist.');
+        }
 
         await dbRun('DELETE FROM checklists WHERE id = ?', [id]);
     }
@@ -149,7 +153,14 @@ export class ChecklistService {
         return result.changes;
     }
 
-    static async addItem(checklistId: string | number, content: string, checked: boolean, position: number): Promise<ChecklistItemRow> {
+    static async addItem(checklistId: string | number, content: string, checked: boolean, position: number, isAuthenticated: boolean): Promise<ChecklistItemRow> {
+        const row = await dbGet('SELECT hidden FROM checklists WHERE id = ?', [checklistId]);
+        if (!row) throw new Error('Checklist not found');
+
+        if (row.hidden === 1 && !isAuthenticated) {
+            throw new Error('Unauthorized. Valid PIN required to modify a hidden checklist.');
+        }
+
         const checkedVal = checked ? 1 : 0;
         const posVal = position || 0;
 
@@ -164,7 +175,17 @@ export class ChecklistService {
         return dbGet('SELECT * FROM checklist_items WHERE id = ?', [result.lastID]);
     }
 
-    static async updateItem(itemId: string | number, content: string | undefined, checked: boolean | undefined, position: number | undefined): Promise<ChecklistItemRow> {
+    static async updateItem(itemId: string | number, content: string | undefined, checked: boolean | undefined, position: number | undefined, isAuthenticated: boolean): Promise<ChecklistItemRow> {
+        const item = await dbGet('SELECT checklistId FROM checklist_items WHERE id = ?', [itemId]);
+        if (!item) throw new Error('Item not found');
+
+        const row = await dbGet('SELECT hidden FROM checklists WHERE id = ?', [item.checklistId]);
+        if (!row) throw new Error('Checklist not found');
+
+        if (row.hidden === 1 && !isAuthenticated) {
+            throw new Error('Unauthorized. Valid PIN required to modify a hidden checklist.');
+        }
+
         let query = 'UPDATE checklist_items SET ';
         let params: any[] = [];
         let updates: string[] = [];
@@ -187,21 +208,24 @@ export class ChecklistService {
         query += updates.join(', ') + ' WHERE id = ?';
         params.push(itemId);
 
-        const result = await dbRun(query, params);
-        if (result.changes === 0) throw new Error('Item not found');
+        await dbRun(query, params);
 
-        const item = await dbGet('SELECT checklistId FROM checklist_items WHERE id = ?', [itemId]);
-        if (item) {
-            const now = new Date().toISOString();
-            await dbRun('UPDATE checklists SET updatedAt = ? WHERE id = ?', [now, item.checklistId]);
-        }
+        const now = new Date().toISOString();
+        await dbRun('UPDATE checklists SET updatedAt = ? WHERE id = ?', [now, item.checklistId]);
 
         return dbGet('SELECT * FROM checklist_items WHERE id = ?', [itemId]);
     }
 
-    static async deleteItem(itemId: string | number): Promise<void> {
+    static async deleteItem(itemId: string | number, isAuthenticated: boolean): Promise<void> {
         const item = await dbGet('SELECT checklistId FROM checklist_items WHERE id = ?', [itemId]);
         if (!item) throw new Error('Item not found');
+
+        const row = await dbGet('SELECT hidden FROM checklists WHERE id = ?', [item.checklistId]);
+        if (!row) throw new Error('Checklist not found');
+
+        if (row.hidden === 1 && !isAuthenticated) {
+            throw new Error('Unauthorized. Valid PIN required to modify a hidden checklist.');
+        }
 
         await dbRun('DELETE FROM checklist_items WHERE id = ?', [itemId]);
 

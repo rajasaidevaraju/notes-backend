@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { NoteService } from '../services/noteService';
 
+const correctPin = process.env.HIDDEN_NOTES_PIN;
+
 export const getAllVisibleNotes = async (req: Request, res: Response) => {
   try {
     const notes = await NoteService.getAllVisibleNotes();
@@ -48,6 +50,10 @@ export const createNote = async (req: Request, res: Response) => {
 
 export const updateNote = async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!id || typeof id !== 'string') {
+    res.status(400).json({ error: 'Invalid Note ID' });
+    return;
+  }
   const { title, content, pinned, hidden } = req.body;
 
   if (!title) {
@@ -56,7 +62,6 @@ export const updateNote = async (req: Request, res: Response) => {
   }
 
   const cookiePin = req.cookies?.auth_pin;
-  const correctPin = process.env.HIDDEN_NOTES_PIN;
   const isAuthenticated = cookiePin === correctPin;
 
   try {
@@ -78,13 +83,15 @@ export const updateNote = async (req: Request, res: Response) => {
 
 export const deleteNote = async (req: Request, res: Response) => {
   const { id } = req.params;
-
+  if (!id || typeof id !== 'string') {
+    res.status(400).json({ error: 'Invalid Note ID' });
+    return;
+  }
   const cookiePin = req.cookies?.auth_pin;
-  const correctPin = process.env.HIDDEN_NOTES_PIN;
   const isAuthenticated = cookiePin === correctPin;
 
   try {
-    await NoteService.deleteNote(id);
+    await NoteService.deleteNote(id, isAuthenticated);
     res.status(204).send();
   } catch (err: any) {
     if (err.message === 'Note not found') {

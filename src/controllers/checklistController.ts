@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
 import { ChecklistService } from '../services/checklistService';
 
+const correctPin = process.env.HIDDEN_NOTES_PIN;
+
 export const getAllVisibleChecklists = async (req: Request, res: Response) => {
     try {
         const checklists = await ChecklistService.getAllVisibleChecklists();
@@ -44,10 +46,13 @@ export const createChecklist = async (req: Request, res: Response) => {
 
 export const updateChecklist = async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id || typeof id !== 'string') {
+        res.status(400).json({ error: 'Invalid Checklist ID' });
+        return;
+    }
     const { title, items, pinned, hidden } = req.body;
 
     const cookiePin = req.cookies?.auth_pin;
-    const correctPin = process.env.HIDDEN_NOTES_PIN;
     const isAuthenticated = cookiePin === correctPin;
 
     try {
@@ -67,12 +72,15 @@ export const updateChecklist = async (req: Request, res: Response) => {
 
 export const deleteChecklist = async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id || typeof id !== 'string') {
+        res.status(400).json({ error: 'Invalid Checklist ID' });
+        return;
+    }
     const cookiePin = req.cookies?.auth_pin;
-    const correctPin = process.env.HIDDEN_NOTES_PIN;
     const isAuthenticated = cookiePin === correctPin;
 
     try {
-        await ChecklistService.deleteChecklist(id);
+        await ChecklistService.deleteChecklist(id, isAuthenticated);
         res.status(204).send();
     } catch (err: any) {
         if (err.message === 'Checklist not found') {
@@ -88,6 +96,10 @@ export const deleteChecklist = async (req: Request, res: Response) => {
 
 export const addItem = async (req: Request, res: Response) => {
     const { id } = req.params;
+    if (!id || typeof id !== 'string') {
+        res.status(400).json({ error: 'Invalid Checklist ID' });
+        return;
+    }
     const { content, checked, position } = req.body;
 
     if (!content) {
@@ -95,25 +107,41 @@ export const addItem = async (req: Request, res: Response) => {
         return;
     }
 
+    const cookiePin = req.cookies?.auth_pin;
+    const isAuthenticated = cookiePin === correctPin;
+
     try {
-        const newItem = await ChecklistService.addItem(id, content, checked, position);
+        const newItem = await ChecklistService.addItem(id, content, checked, position, isAuthenticated);
         res.status(201).json(newItem);
     } catch (err: any) {
-        console.error('Error adding item:', err.message);
-        res.status(500).json({ error: 'Failed to add item' });
+        if (err.message.startsWith('Unauthorized')) {
+            res.status(403).json({ error: err.message });
+        } else {
+            console.error('Error adding item:', err.message);
+            res.status(500).json({ error: 'Failed to add item' });
+        }
     }
 };
 
 export const updateItem = async (req: Request, res: Response) => {
     const { itemId } = req.params;
+    if (!itemId || typeof itemId !== 'string') {
+        res.status(400).json({ error: 'Invalid Item ID' });
+        return;
+    }
     const { content, checked, position } = req.body;
 
+    const cookiePin = req.cookies?.auth_pin;
+    const isAuthenticated = cookiePin === correctPin;
+
     try {
-        const updatedItem = await ChecklistService.updateItem(itemId, content, checked, position);
+        const updatedItem = await ChecklistService.updateItem(itemId, content, checked, position, isAuthenticated);
         res.json(updatedItem);
     } catch (err: any) {
-        if (err.message === 'Item not found') {
-            res.status(404).json({ error: 'Item not found' });
+        if (err.message === 'Item not found' || err.message === 'Checklist not found') {
+            res.status(404).json({ error: err.message });
+        } else if (err.message.startsWith('Unauthorized')) {
+            res.status(403).json({ error: err.message });
         } else if (err.message === 'No fields to update') {
             res.status(400).json({ error: err.message });
         } else {
@@ -125,14 +153,24 @@ export const updateItem = async (req: Request, res: Response) => {
 
 export const deleteItem = async (req: Request, res: Response) => {
     const { itemId } = req.params;
+    if (!itemId || typeof itemId !== 'string') {
+        res.status(400).json({ error: 'Invalid Item ID' });
+        return;
+    }
+
+    const cookiePin = req.cookies?.auth_pin;
+    const isAuthenticated = cookiePin === correctPin;
 
     try {
-        await ChecklistService.deleteItem(itemId);
+        await ChecklistService.deleteItem(itemId, isAuthenticated);
         res.status(204).send();
     } catch (err: any) {
-        if (err.message === 'Item not found') {
-            res.status(404).json({ error: 'Item not found' });
+        if (err.message === 'Item not found' || err.message === 'Checklist not found') {
+            res.status(404).json({ error: err.message });
+        } else if (err.message.startsWith('Unauthorized')) {
+            res.status(403).json({ error: err.message });
         } else {
+            console.error('Error deleting item:', err.message);
             res.status(500).json({ error: 'Failed to delete item' });
         }
     }

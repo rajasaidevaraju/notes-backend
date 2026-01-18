@@ -3,7 +3,7 @@ dotenv.config();
 
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { db, initializeDatabase } from './database';
+import { db, initializeDatabase, dbGet, dbRun } from './database';
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
@@ -24,8 +24,7 @@ import * as ChecklistController from './controllers/checklistController';
 import * as ContentController from './controllers/contentController';
 import * as SystemController from './controllers/systemController';
 
-import { CLIPBOARD_NOTE_TITLE } from './constants';
-import { NoteRow } from './types/notes';
+import { NoteService } from './services/noteService';
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -86,21 +85,12 @@ app.use(frontendProxy);
 const server = app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 
-  initializeDatabase(db, () => {
-    db.get('SELECT id FROM notes WHERE title = ?', [CLIPBOARD_NOTE_TITLE], (err: Error | null, row: NoteRow) => {
-      if (err) {
-        return console.error('Error checking clipboard note:', err.message);
-      }
-      if (!row) {
-        console.log(`Creating special clipboard note: "${CLIPBOARD_NOTE_TITLE}"`);
-        const now = new Date().toISOString();
-        db.run('INSERT INTO notes (title, content, pinned, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)', [CLIPBOARD_NOTE_TITLE, '', 1, now, now], (err: Error | null) => {
-          if (err) {
-            console.error('Error creating clipboard note:', err.message);
-          }
-        });
-      }
-    });
+  initializeDatabase(async (err: Error | null) => {
+    if (err) {
+      return console.error('Database initialization failed:', err.message);
+    }
+
+    await NoteService.initializeClipboardNote();
   });
 });
 server.on('error', (err) => {
@@ -108,12 +98,11 @@ server.on('error', (err) => {
 });
 
 process.on('SIGINT', () => {
-  db.close((err: Error | null) => {
-    if (err) {
-      console.error('Error closing SQLite database:', err.message);
-    } else {
-      console.log('SQLite database connection closed.');
-    }
-    process.exit(0);
-  });
+  try {
+    db.close();
+    console.log('sqlite database connection closed.');
+  } catch (err: any) {
+    console.error('Error closing sqlite database:', err.message);
+  }
+  process.exit(0);
 });

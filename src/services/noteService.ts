@@ -71,11 +71,15 @@ export class NoteService {
         return dbGet('SELECT id, title, content, createdAt, updatedAt, pinned, hidden FROM notes WHERE id = ?', [id]);
     }
 
-    static async deleteNote(id: string | number): Promise<void> {
+    static async deleteNote(id: string | number, isAuthenticated: boolean): Promise<void> {
         const existingNote = await dbGet('SELECT title, hidden FROM notes WHERE id = ?', [id]);
 
         if (!existingNote) {
             throw new Error('Note not found');
+        }
+
+        if (existingNote.hidden === 1 && !isAuthenticated) {
+            throw new Error('Unauthorized. Valid PIN required to delete a hidden note.');
         }
 
         if (existingNote.title === CLIPBOARD_NOTE_TITLE) {
@@ -98,5 +102,18 @@ export class NoteService {
 
         const result = await dbRun(`DELETE FROM notes WHERE id IN (${placeholders})`, ids);
         return result.changes;
+    }
+
+    static async initializeClipboardNote(): Promise<void> {
+        try {
+            const row = await dbGet('SELECT id FROM notes WHERE title = ?', [CLIPBOARD_NOTE_TITLE]) as NoteRow;
+            if (!row) {
+                console.log(`Creating special clipboard note: "${CLIPBOARD_NOTE_TITLE}"`);
+                const now = new Date().toISOString();
+                await dbRun('INSERT INTO notes (title, content, pinned, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)', [CLIPBOARD_NOTE_TITLE, '', 1, now, now]);
+            }
+        } catch (err: any) {
+            console.error('Error checking/creating clipboard note:', err.message);
+        }
     }
 }
