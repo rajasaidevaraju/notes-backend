@@ -6,7 +6,7 @@ export const login = (req: Request, res: Response) => {
     const correctPin = process.env.HIDDEN_NOTES_PIN;
     const ip = req.ip;
 
-      if (!ip) {
+    if (!ip) {
         res.status(500).json({ error: 'Could not determine request IP address.' });
         return;
     }
@@ -20,9 +20,10 @@ export const login = (req: Request, res: Response) => {
 
     res.cookie('auth_pin', pin, {
         httpOnly: true,
-        sameSite: 'strict',
+        sameSite: 'lax',
         secure: process.env.NODE_ENV === 'production',
         maxAge: 24 * 60 * 60 * 1000,
+        path: '/',
     });
 
     clearFailedPinAttempts(ip);
@@ -41,6 +42,6 @@ export const getStatus = (req: Request, res: Response) => {
 };
 
 export const logout = (req: Request, res: Response) => {
-    res.clearCookie('auth_pin');
+    res.clearCookie('auth_pin', { path: '/' });
     res.status(200).json({ message: 'Logged out successfully' });
 };
