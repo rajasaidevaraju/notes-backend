@@ -28,7 +28,7 @@ import { NoteService } from './services/noteService';
 import { MdnsService } from './services/mdnsService';
 
 const app = express();
-const port = process.env.NODE_ENV === 'production' ? 80 : (process.env.PORT || 3002);
+const port = process.env.PORT || 3002;
 
 app.set('trust proxy', true);
 app.use(express.json());
