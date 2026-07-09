@@ -25,7 +25,6 @@ import * as ContentController from './controllers/contentController';
 import * as SystemController from './controllers/systemController';
 
 import { NoteService } from './services/noteService';
-import { MdnsService } from './services/mdnsService';
 
 const app = express();
 const port = process.env.PORT || 3002;
@@ -93,15 +92,12 @@ const server = app.listen(port, () => {
 
     await NoteService.initializeClipboardNote();
   });
-
-  MdnsService.start(Number(port));
 });
 server.on('error', (err) => {
   console.error('Server failed to start:', err);
 });
 
 process.on('SIGINT', () => {
-  MdnsService.stop();
   try {
     db.close();
     console.log('sqlite database connection closed.');
