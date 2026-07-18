@@ -36,6 +36,7 @@ app.use(cookieParser());
 
 app.use(lanGuard);
 
+import path from 'path';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const api = express.Router();
@@ -73,13 +74,29 @@ api.get('/content/hidden', requireAuth, ContentController.getHiddenContent);
 
 app.use('/api', api);
 
-const frontendProxy = createProxyMiddleware({
-  target: 'http://localhost:3003',
-  changeOrigin: true,
-  ws: true,
-});
-
-app.use(frontendProxy);
+if (process.env.NODE_ENV === 'production') {
+  const frontendDir = path.join(__dirname, '../../notes-frontend/out');
+  app.use(express.static(frontendDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.includes(`${path.sep}_next${path.sep}static${path.sep}`)) {
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
+  app.use((req, res, next) => {
+    if (req.method !== 'GET') return next();
+    res.sendFile(path.join(frontendDir, 'index.html'));
+  });
+} else {
+  const frontendProxy = createProxyMiddleware({
+    target: 'http://localhost:3003',
+    changeOrigin: true,
+    ws: true,
+  });
+  app.use(frontendProxy);
+}
 
 
 const server = app.listen(port, () => {
