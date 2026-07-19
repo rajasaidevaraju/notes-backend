@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { NoteService } from '../services/noteService';
+import { LIMITS } from '../constants';
+import { firstLengthError } from '../validation';
 
 const correctPin = process.env.HIDDEN_NOTES_PIN;
 
@@ -35,6 +37,15 @@ export const createNote = async (req: Request, res: Response) => {
     return;
   }
 
+  const lengthError = firstLengthError([
+    [title, LIMITS.TITLE, 'Title'],
+    [content, LIMITS.NOTE_CONTENT, 'Content'],
+  ]);
+  if (lengthError) {
+    res.status(400).json({ error: lengthError });
+    return;
+  }
+
   try {
     const newNote = await NoteService.createNote(title, content, pinned, hidden);
     res.status(201).json(newNote);
@@ -58,6 +69,15 @@ export const updateNote = async (req: Request, res: Response) => {
 
   if (!title) {
     res.status(400).json({ error: 'Title is required' });
+    return;
+  }
+
+  const lengthError = firstLengthError([
+    [title, LIMITS.TITLE, 'Title'],
+    [content, LIMITS.NOTE_CONTENT, 'Content'],
+  ]);
+  if (lengthError) {
+    res.status(400).json({ error: lengthError });
     return;
   }
 

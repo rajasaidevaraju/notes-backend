@@ -3,15 +3,10 @@ import { Request, Response, NextFunction } from 'express';
 import { getLanStatus } from '../services/lanService';
 
 export const lanGuard = (req: Request, res: Response, next: NextFunction) => {
-    const forwarded = req.headers['x-forwarded-for'];
-    const remoteAddress = req.socket.remoteAddress;
-    const reqIp = req.ip;
-
-    const realIp = typeof forwarded === 'string'
-        ? forwarded.split(',')[0].trim()
-        : (reqIp || remoteAddress || '');
-
-    const ip = realIp.replace(/^::ffff:/, '');
+    // Trust only the real TCP peer address — this server is the network edge
+    // (no reverse proxy), so X-Forwarded-For here is attacker-controlled and
+    // must never be used to decide localhost access.
+    const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 
     const isLocalhost =
         ip === '::1' ||

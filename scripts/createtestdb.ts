@@ -1,23 +1,26 @@
-import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
-import {initializeDatabase} from './../src/database'
-const testDbPath = path.join(__dirname, '..', 'data', 'test.db');
 
-const testDbDirectory = path.dirname(testDbPath);
-if (!fs.existsSync(testDbDirectory)) {
-  fs.mkdirSync(testDbDirectory, { recursive: true });
+// Populate a dedicated test database with fixtures. The db module opens
+// DATABASE_PATH the moment it loads, so point it at the test file *before*
+// requiring it (require, not import, to guarantee this runs first).
+const testDbPath = path.join(__dirname, '..', 'data', 'test.db');
+fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
+process.env.DATABASE_PATH = testDbPath;
+
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { db, initializeDatabase } = require('../src/database');
+
+interface DummyNote {
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  pinned: number;
+  hidden: number;
 }
 
-const testDb = new sqlite3.Database(testDbPath, (err: Error | null) => {
-  if (err) {
-    console.error('Error opening test SQLite database:', err.message);
-    process.exit(1);
-  }
-  console.log('Connected to test SQLite database.');
-});
-
-const dummyNotes = [
+const dummyNotes: DummyNote[] = [
   {
     title: 'Welcome Note',
     content: 'This is a welcome note for testing purposes.',
@@ -59,30 +62,6 @@ const dummyNotes = [
     hidden: 0,
   },
   {
-    title: 'A'.repeat(255),
-    content: 'This note has an extremely long title to test maximum title length constraints in the database or UI rendering. '.repeat(10),
-    createdAt: '2025-08-06 15:00:00',
-    updatedAt: '2025-08-06 15:00:00',
-    pinned: 0,
-    hidden: 0,
-  },
-  {
-    title: 'Large Content Note',
-    content: 'This is a very large note to test content size limits. '.repeat(100) + '\nAdditional data: ' + 'X'.repeat(50),
-    createdAt: '2025-08-07 09:30:00',
-    updatedAt: '2025-08-07 09:30:00',
-    pinned: 0,
-    hidden: 1,
-  },
-  {
-    title: 'Edge Case Date Note',
-    content: 'Testing with an extreme future date to check timestamp handling.',
-    createdAt: '9999-12-31 23:59:59',
-    updatedAt: '9999-12-31 23:59:59',
-    pinned: 1,
-    hidden: 0,
-  },
-  {
     title: 'Unicode and Special Characters',
     content: 'This note contains special characters: 😊🚀\nUnicode: 日本語, 中文, Русский\nSymbols: @#$%^&*()',
     createdAt: '2025-08-08 11:11:11',
@@ -90,71 +69,32 @@ const dummyNotes = [
     pinned: 0,
     hidden: 0,
   },
-  {
-    title: '',
-    content: 'This note has an empty title to test how the system handles missing or empty title fields.',
-    createdAt: '2025-08-09 12:00:00',
-    updatedAt: '2025-08-09 12:00:00',
-    pinned: 0,
-    hidden: 1,
-  }
 ];
 
-function populateTestDatabase() {
+initializeDatabase((err: Error | null) => {
+  if (err) {
+    console.error('Failed to initialize test database:', err.message);
+    process.exit(1);
+  }
 
-  initializeDatabase(testDb,() => {
-    console.log('Test database schema initialized.');
+  try {
+    db.prepare('DELETE FROM notes').run();
 
-    testDb.run(`DELETE FROM notes`, function (err) {
-      if (err) {
-        console.error('Error clearing table:', err.message);
-        testDb.close();
-        return;
+    const insert = db.prepare(
+      'INSERT INTO notes (title, content, createdAt, updatedAt, pinned, hidden) VALUES (?, ?, ?, ?, ?, ?)'
+    );
+    const insertMany = db.transaction((notes: DummyNote[]) => {
+      for (const n of notes) {
+        insert.run(n.title, n.content, n.createdAt, n.updatedAt, n.pinned, n.hidden);
       }
-      console.log(`All rows deleted from notes table. Rows affected: ${this.changes}`);
-
-      testDb.run('INSERT INTO notes (title, content, pinned) VALUES (?, ?, ?)', ['Clipboard', '', 1], (err: Error | null) => {
-        if (err) {
-          console.error('Error creating clipboard note:', err.message);
-          testDb.close();
-          return;
-        }
-        console.log('Inserted Clipboard note.');
-
-        const insertStmt = testDb.prepare(
-          'INSERT OR IGNORE INTO notes (title, content, createdAt, updatedAt, pinned, hidden) VALUES (?, ?, ?, ?, ?, ?)'
-        );
-
-        let completed = 0;
-        const total = dummyNotes.length;
-
-        dummyNotes.forEach((note) => {
-          insertStmt.run(note.title, note.content, note.createdAt, note.updatedAt, note.pinned, note.hidden, (err: Error | null) => {
-            if (err) {
-              console.error(`Error inserting note "${note.title}":`, err.message);
-            } else {
-              console.log(`Inserted note: "${note.title}"`);
-            }
-            completed++;
-            if (completed === total) {
-              insertStmt.finalize((err: Error | null) => {
-                if (err) {
-                  console.error('Error finalizing insert statement:', err.message);
-                }
-                testDb.close((err: Error | null) => {
-                  if (err) {
-                    console.error('Error closing test SQLite database:', err.message);
-                  } else {
-                    console.log('Test database population complete. Connection closed.');
-                  }
-                });
-              });
-            }
-          });
-        });
-      });
     });
-  });
-}
+    insertMany(dummyNotes);
 
-populateTestDatabase();
+    console.log(`Test database populated with ${dummyNotes.length} notes at ${testDbPath}`);
+  } catch (e: any) {
+    console.error('Error populating test database:', e.message);
+    process.exitCode = 1;
+  } finally {
+    db.close();
+  }
+});

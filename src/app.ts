@@ -1,6 +1,16 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Fail fast if the hidden-notes PIN is missing or malformed. The UI expects a
+// 4-character PIN, and an absent value would otherwise let auth checks that
+// compare against `undefined` fail open. Runs before controllers read the env.
+const hiddenNotesPin = process.env.HIDDEN_NOTES_PIN;
+if (!hiddenNotesPin || hiddenNotesPin.length !== 4) {
+  throw new Error(
+    'HIDDEN_NOTES_PIN must be set to a 4-character value. Refusing to start.'
+  );
+}
+
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import { db, initializeDatabase, dbGet, dbRun } from './database';
@@ -15,22 +25,18 @@ process.on('unhandledRejection', (reason, promise) => {
 
 
 import { lanGuard } from './middleware/lanGuard';
-import { pinRateLimiter } from './middleware/rateLimiter';
-import { requireAuth } from './middleware/auth';
-
-import * as AuthController from './controllers/authController';
-import * as NotesController from './controllers/notesController';
-import * as ChecklistController from './controllers/checklistController';
-import * as ContentController from './controllers/contentController';
-import * as SystemController from './controllers/systemController';
+import api from './routes';
 
 import { NoteService } from './services/noteService';
 
 const app = express();
 const port = process.env.PORT || 3002;
 
-app.set('trust proxy', true);
-app.use(express.json());
+
+app.set('trust proxy', false);
+// Allow room for the largest note (LIMITS.NOTE_CONTENT) plus JSON overhead;
+// the default 100kb would 413 a max-size note before per-field validation runs.
+app.use(express.json({ limit: '256kb' }));
 app.use(cookieParser());
 //app.use(delayMiddleware); 
 
@@ -38,39 +44,6 @@ app.use(lanGuard);
 
 import path from 'path';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-
-const api = express.Router();
-
-api.get('/', SystemController.getHomePage);
-api.get('/health', SystemController.getHealth);
-api.get('/server-ip', SystemController.getServerIp);
-api.get('/system/lan/status', SystemController.getLanSharingStatus);
-api.post('/system/lan/enable', SystemController.enableLanSharing);
-api.post('/system/lan/disable', SystemController.disableLanSharing);
-
-api.post('/auth', pinRateLimiter, AuthController.login);
-api.get('/auth/status', AuthController.getStatus);
-api.post('/logout', AuthController.logout);
-
-api.get('/notes', NotesController.getAllVisibleNotes);
-api.get('/notes/hidden', requireAuth, NotesController.getHiddenNotes);
-api.post('/notes', NotesController.createNote);
-api.put('/notes/:id', NotesController.updateNote);
-api.delete('/notes/:id', NotesController.deleteNote);
-api.delete('/content/batch', ContentController.deleteBatchContent);
-
-api.get('/checklists', ChecklistController.getAllVisibleChecklists);
-api.get('/checklists/hidden', requireAuth, ChecklistController.getHiddenChecklists);
-api.post('/checklists', ChecklistController.createChecklist);
-api.put('/checklists/:id', ChecklistController.updateChecklist);
-api.delete('/checklists/:id', ChecklistController.deleteChecklist);
-
-api.post('/checklists/:id/items', ChecklistController.addItem);
-api.put('/checklists/items/:itemId', ChecklistController.updateItem);
-api.delete('/checklists/items/:itemId', ChecklistController.deleteItem);
-
-api.get('/content', ContentController.getAllContent);
-api.get('/content/hidden', requireAuth, ContentController.getHiddenContent);
 
 app.use('/api', api);
 

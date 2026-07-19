@@ -1,21 +1,28 @@
 import { Request, Response } from 'express';
 import { NoteRow } from '../types/notes';
 import { ChecklistRow } from '../types/checklists';
+import { TrackerRow } from '../types/trackers';
 import { NoteService } from '../services/noteService';
 import { ChecklistService } from '../services/checklistService';
+import { TrackerService } from '../services/trackerService';
 
-export type UnifiedItem = (NoteRow & { type: 'note' }) | (ChecklistRow & { type: 'checklist' });
+export type UnifiedItem =
+    (NoteRow & { type: 'note' }) |
+    (ChecklistRow & { type: 'checklist' }) |
+    (TrackerRow & { type: 'tracker' });
 
 export const getAllContent = async (req: Request, res: Response) => {
     try {
-        const [notes, checklists] = await Promise.all([
+        const [notes, checklists, trackers] = await Promise.all([
             NoteService.getAllVisibleNotes(),
-            ChecklistService.getAllVisibleChecklists()
+            ChecklistService.getAllVisibleChecklists(),
+            TrackerService.getAllVisibleTrackers()
         ]);
 
         const mixed: UnifiedItem[] = [
             ...notes.map(n => ({ ...n, type: 'note' as const })),
-            ...checklists.map(c => ({ ...c, type: 'checklist' as const }))
+            ...checklists.map(c => ({ ...c, type: 'checklist' as const })),
+            ...trackers.map(t => ({ ...t, type: 'tracker' as const }))
         ];
 
         mixed.sort((a, b) => {
@@ -32,14 +39,16 @@ export const getAllContent = async (req: Request, res: Response) => {
 
 export const getHiddenContent = async (req: Request, res: Response) => {
     try {
-        const [notes, checklists] = await Promise.all([
+        const [notes, checklists, trackers] = await Promise.all([
             NoteService.getHiddenNotes(),
-            ChecklistService.getHiddenChecklists()
+            ChecklistService.getHiddenChecklists(),
+            TrackerService.getHiddenTrackers()
         ]);
 
         const mixed: UnifiedItem[] = [
             ...notes.map(n => ({ ...n, type: 'note' as const })),
-            ...checklists.map(c => ({ ...c, type: 'checklist' as const }))
+            ...checklists.map(c => ({ ...c, type: 'checklist' as const })),
+            ...trackers.map(t => ({ ...t, type: 'tracker' as const }))
         ];
 
         mixed.sort((a, b) => {
@@ -69,10 +78,12 @@ export const deleteBatchContent = async (req: Request, res: Response) => {
 
     const noteIds = items.filter((item: any) => item.type === 'note').map((item: any) => item.id);
     const checklistIds = items.filter((item: any) => item.type === 'checklist').map((item: any) => item.id);
+    const trackerIds = items.filter((item: any) => item.type === 'tracker').map((item: any) => item.id);
 
     try {
         let deletedNotesCount = 0;
         let deletedChecklistsCount = 0;
+        let deletedTrackersCount = 0;
 
         if (noteIds.length > 0) {
             deletedNotesCount = await NoteService.deleteBatchNotes(noteIds);
@@ -82,7 +93,11 @@ export const deleteBatchContent = async (req: Request, res: Response) => {
             deletedChecklistsCount = await ChecklistService.deleteBatchChecklists(checklistIds);
         }
 
-        res.status(200).json({ message: `Successfully deleted ${deletedNotesCount + deletedChecklistsCount} items.` });
+        if (trackerIds.length > 0) {
+            deletedTrackersCount = await TrackerService.deleteBatchTrackers(trackerIds);
+        }
+
+        res.status(200).json({ message: `Successfully deleted ${deletedNotesCount + deletedChecklistsCount + deletedTrackersCount} items.` });
     } catch (err: any) {
         if (err.message.startsWith('Unauthorized')) {
             res.status(403).json({ error: err.message });

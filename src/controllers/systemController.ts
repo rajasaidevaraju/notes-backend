@@ -15,17 +15,15 @@ export const getHealth = (req: Request, res: Response) => {
   res.json({ status: 'OK' });
 };
 
-export const getLanSharingStatus = (req: Request, res: Response) => {
-  res.json(getLanStatus());
+const isRequestLocal = (req: Request): boolean => {
+  // Use the real TCP peer only; X-Forwarded-For is spoofable and this server
+  // has no trusted proxy in front of it.
+  const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
+  return ip === '::1' || ip === '127.0.0.1' || ip === 'localhost';
 };
 
-const isRequestLocal = (req: Request): boolean => {
-  const forwarded = req.headers['x-forwarded-for'];
-  const realIp = typeof forwarded === 'string'
-    ? forwarded.split(',')[0].trim()
-    : (req.ip || req.socket.remoteAddress || '');
-  const ip = realIp.replace(/^::ffff:/, '');
-  return ip === '::1' || ip === '127.0.0.1' || ip === 'localhost';
+export const getLanSharingStatus = (req: Request, res: Response) => {
+  res.json({ ...getLanStatus(), canManage: isRequestLocal(req) });
 };
 
 export const enableLanSharing = (req: Request, res: Response) => {

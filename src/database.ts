@@ -16,6 +16,9 @@ if (!fs.existsSync(dbDirectory)) {
 }
 
 const db = new Database(dbPath);
+// SQLite ships with FK enforcement off; without this, ON DELETE CASCADE
+// (checklist_items, tracker_entries) silently leaves orphan rows
+db.pragma('foreign_keys = ON');
 
 function addColumnIfNotExists(tableName: string, columnName: string, columnDef: string): void {
   const tableInfo = db.prepare(`PRAGMA table_info(${tableName})`).all() as any[];
@@ -60,6 +63,27 @@ function initializeDatabase(callback: (err: Error | null) => void) {
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (checklistId) REFERENCES checklists(id) ON DELETE CASCADE
       );
+
+      CREATE TABLE IF NOT EXISTS trackers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        unit TEXT,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        pinned INTEGER DEFAULT 0,
+        hidden INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS tracker_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        trackerId INTEGER,
+        value TEXT NOT NULL,
+        recordedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (trackerId) REFERENCES trackers(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tracker_entries_tracker_time
+        ON tracker_entries(trackerId, recordedAt DESC);
     `);
 
     console.log('Database schema initialized or already exists.');

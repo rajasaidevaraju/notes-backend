@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
 import { ChecklistService } from '../services/checklistService';
+import { LIMITS } from '../constants';
+import { firstLengthError, itemsContentLengthError } from '../validation';
 
 const correctPin = process.env.HIDDEN_NOTES_PIN;
 
@@ -35,6 +37,14 @@ export const createChecklist = async (req: Request, res: Response) => {
         return;
     }
 
+    const lengthError =
+        firstLengthError([[title, LIMITS.TITLE, 'Title']]) ||
+        itemsContentLengthError(items, LIMITS.CHECKLIST_ITEM, 'Checklist item');
+    if (lengthError) {
+        res.status(400).json({ error: lengthError });
+        return;
+    }
+
     try {
         const newChecklist = await ChecklistService.createChecklist(title, items, pinned, hidden);
         res.status(201).json(newChecklist);
@@ -51,6 +61,14 @@ export const updateChecklist = async (req: Request, res: Response) => {
         return;
     }
     const { title, items, pinned, hidden } = req.body;
+
+    const lengthError =
+        firstLengthError([[title, LIMITS.TITLE, 'Title']]) ||
+        itemsContentLengthError(items, LIMITS.CHECKLIST_ITEM, 'Checklist item');
+    if (lengthError) {
+        res.status(400).json({ error: lengthError });
+        return;
+    }
 
     const cookiePin = req.cookies?.auth_pin;
     const isAuthenticated = cookiePin === correctPin;
@@ -107,6 +125,12 @@ export const addItem = async (req: Request, res: Response) => {
         return;
     }
 
+    const lengthError = firstLengthError([[content, LIMITS.CHECKLIST_ITEM, 'Checklist item']]);
+    if (lengthError) {
+        res.status(400).json({ error: lengthError });
+        return;
+    }
+
     const cookiePin = req.cookies?.auth_pin;
     const isAuthenticated = cookiePin === correctPin;
 
@@ -130,6 +154,12 @@ export const updateItem = async (req: Request, res: Response) => {
         return;
     }
     const { content, checked, position } = req.body;
+
+    const lengthError = firstLengthError([[content, LIMITS.CHECKLIST_ITEM, 'Checklist item']]);
+    if (lengthError) {
+        res.status(400).json({ error: lengthError });
+        return;
+    }
 
     const cookiePin = req.cookies?.auth_pin;
     const isAuthenticated = cookiePin === correctPin;
