@@ -51,7 +51,7 @@ if (process.env.NODE_ENV === 'production') {
   const frontendDir = path.join(__dirname, '../../notes-frontend/out');
   app.use(express.static(frontendDir, {
     setHeaders: (res, filePath) => {
-      if (filePath.includes(`${path.sep}_next${path.sep}static${path.sep}`)) {
+      if (filePath.includes(`${path.sep}assets${path.sep}`)) {
         res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       } else {
         res.setHeader('Cache-Control', 'no-cache');
