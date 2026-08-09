@@ -1,11 +1,22 @@
 
+import fs from 'fs';
+import path from 'path';
 import { Request, Response, NextFunction } from 'express';
 import { getLanStatus } from '../services/lanService';
 
+const LAN_BLOCKED_MESSAGE =
+    'Access restricted to localhost. Enable LAN sharing from the host device.';
+
+const DENIED_PAGE = path.join(__dirname, '../../public/denied.html');
+
+let deniedHtml: string | null = null;
+try {
+    deniedHtml = fs.readFileSync(DENIED_PAGE, 'utf8');
+} catch (err) {
+    console.error(`Failed to load ${DENIED_PAGE}; LAN block will return JSON.`, err);
+}
+
 export const lanGuard = (req: Request, res: Response, next: NextFunction) => {
-    // Trust only the real TCP peer address — this server is the network edge
-    // (no reverse proxy), so X-Forwarded-For here is attacker-controlled and
-    // must never be used to decide localhost access.
     const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
 
     const isLocalhost =
@@ -22,6 +33,11 @@ export const lanGuard = (req: Request, res: Response, next: NextFunction) => {
     if (enabled) {
         return next();
     }
+    
+    if (deniedHtml) {
+        res.status(403).type('html').send(deniedHtml);
+        return;
+    }
 
-    res.status(403).json({ error: 'Access restricted to localhost. Enable LAN sharing from the host device.' });
+    res.status(403).json({ error: LAN_BLOCKED_MESSAGE });
 };
