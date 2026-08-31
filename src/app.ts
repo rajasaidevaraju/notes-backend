@@ -43,6 +43,10 @@ import { devProxy, devProxyUpgrade } from './middleware/devProxy';
 
 app.use('/api', api);
 
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `Cannot ${req.method} ${req.originalUrl}` });
+});
+
 if (process.env.NODE_ENV === 'production') {
   const frontendDir = path.join(__dirname, '../../notes-frontend/out');
   app.use(express.static(frontendDir, {
@@ -83,6 +87,8 @@ if (process.env.NODE_ENV !== 'production') {
 
 server.on('error', (err) => {
   console.error('Server failed to start:', err);
+
+  if (!server.listening) process.exit(1);
 });
 
 process.on('SIGINT', () => {
