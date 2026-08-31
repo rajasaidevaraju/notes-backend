@@ -1,13 +1,14 @@
 import { Request, Response, NextFunction } from 'express';
+import { forbidden } from '../errors';
 
-export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-    const cookiePin = req.cookies?.auth_pin;
+export const isAuthenticated = (req: Request): boolean => {
     const correctPin = process.env.HIDDEN_NOTES_PIN;
-    const isAuth = cookiePin === correctPin;
+    return Boolean(correctPin) && req.cookies?.auth_pin === correctPin;
+};
 
-    if (!isAuth) {
-        res.status(403).json({ error: 'Unauthorized' });
-        return;
+export const requireAuth = (req: Request, _res: Response, next: NextFunction) => {
+    if (!isAuthenticated(req)) {
+        return next(forbidden('Unauthorized'));
     }
 
     next();

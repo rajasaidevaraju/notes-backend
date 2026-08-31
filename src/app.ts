@@ -1,9 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Fail fast if the hidden-notes PIN is missing or malformed. The UI expects a
-// 4-character PIN, and an absent value would otherwise let auth checks that
-// compare against `undefined` fail open. Runs before controllers read the env.
 const hiddenNotesPin = process.env.HIDDEN_NOTES_PIN;
 if (!hiddenNotesPin || hiddenNotesPin.length !== 4) {
   throw new Error(
@@ -13,7 +10,7 @@ if (!hiddenNotesPin || hiddenNotesPin.length !== 4) {
 
 import express from 'express';
 import cookieParser from 'cookie-parser';
-import { db, initializeDatabase, dbGet, dbRun } from './database';
+import { db, initializeDatabase } from './database';
 
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
@@ -25,25 +22,24 @@ process.on('unhandledRejection', (reason, promise) => {
 
 
 import { lanGuard } from './middleware/lanGuard';
+import { errorHandler } from './middleware/errorHandler';
 import api from './routes';
 
-import { NoteService } from './services/noteService';
+import * as NoteService from './services/note';
 
 const app = express();
 const port = process.env.PORT || 3002;
 
 
 app.set('trust proxy', false);
-// Allow room for the largest note (LIMITS.NOTE_CONTENT) plus JSON overhead;
-// the default 100kb would 413 a max-size note before per-field validation runs.
+
 app.use(express.json({ limit: '256kb' }));
 app.use(cookieParser());
-//app.use(delayMiddleware); 
 
 app.use(lanGuard);
 
 import path from 'path';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { devProxy, devProxyUpgrade } from './middleware/devProxy';
 
 app.use('/api', api);
 
@@ -63,26 +59,28 @@ if (process.env.NODE_ENV === 'production') {
     res.sendFile(path.join(frontendDir, 'index.html'));
   });
 } else {
-  const frontendProxy = createProxyMiddleware({
-    target: 'http://localhost:3003',
-    changeOrigin: true,
-    ws: true,
-  });
-  app.use(frontendProxy);
+  app.use(devProxy);
 }
 
+// Last: every next(err) and every throw from a handler above lands here.
+app.use(errorHandler);
 
 const server = app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 
-  initializeDatabase(async (err: Error | null) => {
+  initializeDatabase((err: Error | null) => {
     if (err) {
       return console.error('Database initialization failed:', err.message);
     }
 
-    await NoteService.initializeClipboardNote();
+    NoteService.initializeClipboardNote();
   });
 });
+if (process.env.NODE_ENV !== 'production') {
+  // Vite's HMR websocket: upgrades bypass the express middleware stack.
+  server.on('upgrade', devProxyUpgrade);
+}
+
 server.on('error', (err) => {
   console.error('Server failed to start:', err);
 });

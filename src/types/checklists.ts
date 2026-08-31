@@ -5,6 +5,7 @@ export interface ChecklistRow {
     updatedAt: string;
     hidden: number;
     pinned: number;
+    archived: number;
     items?: ChecklistItemRow[];
 }
 

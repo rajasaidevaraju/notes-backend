@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { recordFailedPinAttempt, clearFailedPinAttempts } from '../middleware/rateLimiter';
+import { AppError, forbidden } from '../errors';
 
 export const login = (req: Request, res: Response) => {
     const { pin } = req.body;
@@ -7,20 +8,17 @@ export const login = (req: Request, res: Response) => {
     const ip = req.ip;
 
     if (!ip) {
-        res.status(500).json({ error: 'Could not determine request IP address.' });
-        return;
+        throw new AppError(500, 'Could not determine request IP address.');
     }
-
 
     if (!pin || pin !== correctPin) {
         recordFailedPinAttempt(ip);
-        res.status(403).json({ error: 'Invalid PIN' });
-        return;
+        throw forbidden('Invalid PIN');
     }
 
     res.cookie('auth_pin', pin, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: 'strict',
         secure: false,
         maxAge: 24 * 60 * 60 * 1000,
         path: '/',
@@ -34,11 +32,7 @@ export const getStatus = (req: Request, res: Response) => {
     const pin = req.cookies['auth_pin'];
     const correctPin = process.env.HIDDEN_NOTES_PIN;
 
-    if (pin && pin === correctPin) {
-        res.json({ loggedIn: true });
-    } else {
-        res.json({ loggedIn: false });
-    }
+    res.json({ loggedIn: Boolean(correctPin) && pin === correctPin });
 };
 
 export const logout = (req: Request, res: Response) => {

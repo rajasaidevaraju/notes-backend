@@ -2,7 +2,8 @@
 import fs from 'fs';
 import path from 'path';
 import { Request, Response, NextFunction } from 'express';
-import { getLanStatus } from '../services/lanService';
+import { getLanStatus } from '../services/lan';
+import { isRequestLocal } from './localOnly';
 
 const LAN_BLOCKED_MESSAGE =
     'Access restricted to localhost. Enable LAN sharing from the host device.';
@@ -17,14 +18,7 @@ try {
 }
 
 export const lanGuard = (req: Request, res: Response, next: NextFunction) => {
-    const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
-
-    const isLocalhost =
-        ip === '::1' ||
-        ip === '127.0.0.1' ||
-        ip === 'localhost';
-
-    if (isLocalhost) {
+    if (isRequestLocal(req)) {
         return next();
     }
 

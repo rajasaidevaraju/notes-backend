@@ -41,7 +41,8 @@ function initializeDatabase(callback: (err: Error | null) => void) {
         createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
         pinned INTEGER DEFAULT 0,
-        hidden INTEGER DEFAULT 0
+        hidden INTEGER DEFAULT 0,
+        archived INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS checklists (
@@ -50,7 +51,8 @@ function initializeDatabase(callback: (err: Error | null) => void) {
         createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
         pinned INTEGER DEFAULT 0,
-        hidden INTEGER DEFAULT 0
+        hidden INTEGER DEFAULT 0,
+        archived INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS checklist_items (
@@ -71,7 +73,8 @@ function initializeDatabase(callback: (err: Error | null) => void) {
         createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
         updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
         pinned INTEGER DEFAULT 0,
-        hidden INTEGER DEFAULT 0
+        hidden INTEGER DEFAULT 0,
+        archived INTEGER DEFAULT 0
       );
 
       CREATE TABLE IF NOT EXISTS tracker_entries (
@@ -90,8 +93,11 @@ function initializeDatabase(callback: (err: Error | null) => void) {
 
     addColumnIfNotExists('notes', 'pinned', 'INTEGER DEFAULT 0');
     addColumnIfNotExists('notes', 'hidden', 'INTEGER DEFAULT 0');
+    addColumnIfNotExists('notes', 'archived', 'INTEGER DEFAULT 0');
     addColumnIfNotExists('checklists', 'pinned', 'INTEGER DEFAULT 0');
     addColumnIfNotExists('checklists', 'hidden', 'INTEGER DEFAULT 0');
+    addColumnIfNotExists('checklists', 'archived', 'INTEGER DEFAULT 0');
+    addColumnIfNotExists('trackers', 'archived', 'INTEGER DEFAULT 0');
 
     callback(null);
   } catch (err) {
@@ -100,20 +106,27 @@ function initializeDatabase(callback: (err: Error | null) => void) {
   }
 }
 
-export const dbQuery = async (sql: string, params: any[] = []): Promise<any[]> => {
+
+export const dbQuery = (sql: string, params: any[] = []): any[] => {
   return db.prepare(sql).all(...params) as any[];
 };
 
-export const dbGet = async (sql: string, params: any[] = []): Promise<any> => {
+export const dbGet = (sql: string, params: any[] = []): any => {
   return db.prepare(sql).get(...params);
 };
 
-export const dbRun = async (sql: string, params: any[] = []): Promise<{ lastID: number; changes: number }> => {
+export const dbRun = (sql: string, params: any[] = []): { lastID: number; changes: number } => {
   const result = db.prepare(sql).run(...params);
   return {
     lastID: Number(result.lastInsertRowid),
     changes: result.changes
   };
 };
+
+/**
+ * Runs fn in a transaction: atomic, and rolled back if fn throws. Because
+ * everything inside is synchronous, no other request can interleave.
+ */
+export const tx = <T>(fn: () => T): T => db.transaction(fn)();
 
 export { db, initializeDatabase };

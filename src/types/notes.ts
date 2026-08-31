@@ -6,4 +6,5 @@ export interface NoteRow {
   updatedAt:string;
   hidden: number;
   pinned: number;
+  archived: number;
 }

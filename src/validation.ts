@@ -1,8 +1,4 @@
-/**
- * Length validation for user-supplied text. Each helper returns an error
- * string when a value is too long, or null when it's acceptable (including
- * when the value is absent — controllers handle "required" separately).
- */
+import { badRequest } from './errors';
 
 type LengthCheck = [value: unknown, max: number, field: string];
 
@@ -27,4 +23,14 @@ export function itemsContentLengthError(
         }
     }
     return null;
+}
+
+export function requireIdParam(value: unknown, label: string): number {
+    const id = typeof value === 'string' ? Number(value) : NaN;
+
+    if (!Number.isInteger(id) || id <= 0) {
+        throw badRequest(`Invalid ${label} ID`);
+    }
+
+    return id;
 }

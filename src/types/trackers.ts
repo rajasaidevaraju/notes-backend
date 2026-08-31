@@ -6,6 +6,7 @@ export interface TrackerRow {
     updatedAt: string;
     hidden: number;
     pinned: number;
+    archived: number;
     entries?: TrackerEntryRow[];
 }
 

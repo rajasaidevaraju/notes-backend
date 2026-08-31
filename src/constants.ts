@@ -1,7 +1,5 @@
 export const CLIPBOARD_NOTE_TITLE = 'Clipboard';
 
-// Maximum accepted lengths for user-supplied text. Enforced server-side so a
-// client on the shared LAN can't push arbitrarily large payloads into the DB.
 export const LIMITS = {
   TITLE: 255,
   NOTE_CONTENT: 100_000,
