@@ -2,7 +2,15 @@ import { Request, Response } from 'express';
 import * as TrackerService from '../services/tracker';
 import { ImportEntry } from '../services/tracker';
 import { LIMITS } from '../constants';
-import { firstLengthError, requireIdParam } from '../validation';
+import {
+    isPositiveInteger,
+    optionalFlag,
+    optionalNullableString,
+    optionalString,
+    optionalTitle,
+    requireIdParam,
+    requireString,
+} from '../validation';
 import { badRequest, forbidden } from '../errors';
 import { isAuthenticated } from '../middleware/auth';
 
@@ -18,40 +26,29 @@ export const getArchivedTrackers = (req: Request, res: Response) => {
     res.json(TrackerService.getArchivedTrackers());
 };
 
-const validateTrackerMeta = (title: unknown, unit: unknown) => {
-    const lengthError = firstLengthError([
-        [title, LIMITS.TITLE, 'Title'],
-        [unit, LIMITS.TRACKER_UNIT, 'Unit'],
-    ]);
-    if (lengthError) throw badRequest(lengthError);
-};
-
+// The limit applies after trimming, so it is checked here rather than by requireString.
 const requireValue = (value: unknown): string => {
-    if (typeof value !== 'string' || !value.trim()) throw badRequest('Value is required');
-
-    const trimmed = value.trim();
-    const lengthError = firstLengthError([[trimmed, LIMITS.TRACKER_VALUE, 'Value']]);
-    if (lengthError) throw badRequest(lengthError);
-
+    const trimmed = requireString(value, 'Value', Infinity).trim();
+    if (trimmed.length > LIMITS.TRACKER_VALUE) {
+        throw badRequest(`Value must be at most ${LIMITS.TRACKER_VALUE} characters.`);
+    }
     return trimmed;
 };
-
-const isPositiveInteger = (value: unknown): boolean =>
-    Number.isInteger(Number(value)) && Number(value) > 0;
 
 export const createTracker = (req: Request, res: Response) => {
     const { title, unit, pinned, hidden } = req.body;
 
-    if (!title) throw badRequest('Title is required');
-    validateTrackerMeta(title, unit);
-
-    res.status(201).json(TrackerService.createTracker(title, unit, pinned, hidden));
+    res.status(201).json(TrackerService.createTracker(
+        requireString(title, 'Title', LIMITS.TITLE),
+        optionalNullableString(unit, 'Unit', LIMITS.TRACKER_UNIT) ?? null,
+        optionalFlag(pinned, 'pinned') ?? false,
+        optionalFlag(hidden, 'hidden') ?? false
+    ));
 };
 
 export const updateTracker = (req: Request, res: Response) => {
     const id = requireIdParam(req.params.id, 'Tracker');
     const { title, unit, pinned, hidden, archived, deletedEntryIds } = req.body;
-    validateTrackerMeta(title, unit);
 
     if (typeof deletedEntryIds !== 'undefined') {
         if (!Array.isArray(deletedEntryIds) || deletedEntryIds.some((entryId) => !isPositiveInteger(entryId))) {
@@ -59,10 +56,14 @@ export const updateTracker = (req: Request, res: Response) => {
         }
     }
 
-    res.json(TrackerService.updateTracker(
-        id, title, unit, pinned, hidden, archived, isAuthenticated(req),
-        typeof deletedEntryIds !== 'undefined' ? deletedEntryIds.map(Number) : undefined
-    ));
+    res.json(TrackerService.updateTracker(id, {
+        title: optionalTitle(title, LIMITS.TITLE),
+        unit: optionalNullableString(unit, 'Unit', LIMITS.TRACKER_UNIT),
+        pinned: optionalFlag(pinned, 'pinned'),
+        hidden: optionalFlag(hidden, 'hidden'),
+        archived: optionalFlag(archived, 'archived'),
+        deletedEntryIds: deletedEntryIds?.map(Number),
+    }, isAuthenticated(req)));
 };
 
 export const deleteTracker = (req: Request, res: Response) => {
@@ -101,11 +102,8 @@ export const importTracker = (req: Request, res: Response) => {
         throw badRequest('trackerId must be a positive integer.');
     }
 
-    if (typeof unit !== 'undefined' && unit !== null && typeof unit !== 'string') {
-        throw badRequest('unit must be a string.');
-    }
-
-    validateTrackerMeta(title, unit);
+    optionalString(title, 'Title', LIMITS.TITLE);
+    optionalNullableString(unit, 'Unit', LIMITS.TRACKER_UNIT);
 
     if (!Array.isArray(entries) || entries.length === 0) {
         throw badRequest('A non-empty entries array is required.');

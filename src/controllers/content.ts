@@ -6,6 +6,8 @@ import * as NoteService from '../services/note';
 import * as ChecklistService from '../services/checklist';
 import * as TrackerService from '../services/tracker';
 import { badRequest } from '../errors';
+import { tx } from '../database';
+import { isAuthenticated } from '../middleware/auth';
 
 export type UnifiedItem =
     (NoteRow & { type: 'note' }) |
@@ -51,6 +53,9 @@ export const getArchivedContent = (req: Request, res: Response) => {
     ));
 };
 
+const CONTENT_TYPES = ['note', 'checklist', 'tracker'] as const;
+type ContentType = typeof CONTENT_TYPES[number];
+
 export const deleteBatchContent = (req: Request, res: Response) => {
     const { items } = req.body; // Expecting [{ id: 1, type: 'note' }, { id: 2, type: 'checklist' }]
 
@@ -58,13 +63,22 @@ export const deleteBatchContent = (req: Request, res: Response) => {
         throw badRequest('An array of items (id, type) is required.');
     }
 
-    const idsOfType = (type: string): number[] =>
-        items.filter((item: any) => item.type === type).map((item: any) => item.id);
+    for (const item of items) {
+        if (!CONTENT_TYPES.includes(item?.type) || !Number.isInteger(item?.id) || item.id <= 0) {
+            throw badRequest('Each item needs a positive integer id and a type of note, checklist or tracker.');
+        }
+    }
 
-    const deleted =
-        NoteService.deleteBatchNotes(idsOfType('note')) +
-        ChecklistService.deleteBatchChecklists(idsOfType('checklist')) +
-        TrackerService.deleteBatchTrackers(idsOfType('tracker'));
+    const idsOfType = (type: ContentType): number[] =>
+        items.filter((item) => item.type === type).map((item) => item.id);
+    const authenticated = isAuthenticated(req);
+
+    // All or nothing: a refused hidden item must not leave the rest half-deleted.
+    const deleted = tx(() =>
+        NoteService.deleteBatchNotes(idsOfType('note'), authenticated) +
+        ChecklistService.deleteBatchChecklists(idsOfType('checklist'), authenticated) +
+        TrackerService.deleteBatchTrackers(idsOfType('tracker'), authenticated)
+    );
 
     res.status(200).json({ message: `Successfully deleted ${deleted} items.` });
 };

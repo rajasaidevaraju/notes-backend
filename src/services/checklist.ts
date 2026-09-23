@@ -1,6 +1,7 @@
-import { dbQuery, dbRun, dbGet, tx } from '../database';
+import { dbQuery, dbRun, dbGet, tx, updateRow } from '../database';
 import { ChecklistRow, ChecklistItemRow } from '../types/checklists';
 import { badRequest, forbidden, internal, notFound } from '../errors';
+import { ChecklistItemInput } from '../validation';
 
 const CHECKLIST_SELECT = `
     SELECT c.*, ci.id as itemId, ci.content as itemContent, ci.checked, ci.position
@@ -15,7 +16,7 @@ export function getAllVisibleChecklists(): ChecklistRow[] {
 }
 
 export function getHiddenChecklists(): ChecklistRow[] {
-    return formatChecklistRows(dbQuery(`${CHECKLIST_SELECT} WHERE c.hidden = 1 ${CHECKLIST_ORDER}`));
+    return formatChecklistRows(dbQuery(`${CHECKLIST_SELECT} WHERE c.hidden = 1 AND c.archived = 0 ${CHECKLIST_ORDER}`));
 }
 
 export function getArchivedChecklists(): ChecklistRow[] {
@@ -29,19 +30,32 @@ export function getChecklistById(id: number): ChecklistRow | null {
 }
 
 /** Bulk-inserts items for a checklist. No-op for an empty list. */
-function insertItems(checklistId: string | number, items: any[]): void {
+function insertItems(checklistId: number, items: ChecklistItemInput[]): void {
     if (items.length === 0) return;
 
     const placeholders = items.map(() => '(?, ?, ?, ?)').join(',');
     const params: any[] = [];
     items.forEach((item, index) => {
-        params.push(checklistId, item.content || '', item.checked ? 1 : 0, item.position ?? index);
+        params.push(checklistId, item.content, item.checked ? 1 : 0, item.position ?? index);
     });
 
     dbRun(`INSERT INTO checklist_items (checklistId, content, checked, position) VALUES ${placeholders}`, params);
 }
 
-export function createChecklist(title: string, items: any[], pinned: boolean, hidden: boolean): ChecklistRow {
+export interface ChecklistChanges {
+    title?: string;
+    items?: ChecklistItemInput[];
+    pinned?: boolean;
+    hidden?: boolean;
+    archived?: boolean;
+}
+
+export function createChecklist(
+    title: string,
+    items: ChecklistItemInput[] | undefined,
+    pinned: boolean,
+    hidden: boolean
+): ChecklistRow {
     return tx(() => {
         const now = new Date().toISOString();
 
@@ -50,7 +64,7 @@ export function createChecklist(title: string, items: any[], pinned: boolean, hi
             [title, pinned ? 1 : 0, hidden ? 1 : 0, now, now]
         );
 
-        if (Array.isArray(items)) insertItems(result.lastID, items);
+        if (items) insertItems(result.lastID, items);
 
         const checklist = getChecklistById(result.lastID);
         if (!checklist) throw internal('Failed to retrieve created checklist');
@@ -58,83 +72,54 @@ export function createChecklist(title: string, items: any[], pinned: boolean, hi
     });
 }
 
-export function updateChecklist(
-    id: string | number,
-    title: string | undefined,
-    items: any[] | undefined,
-    pinned: boolean | undefined,
-    hidden: boolean | undefined,
-    archived: boolean | undefined,
-    isAuthenticated: boolean
-): ChecklistRow {
-    const row = dbGet('SELECT hidden FROM checklists WHERE id = ?', [id]);
-    if (!row) throw notFound('Checklist');
+/** Partial update: every field left undefined keeps its current value. */
+export function updateChecklist(id: number, changes: ChecklistChanges, isAuthenticated: boolean): ChecklistRow {
+    requireChecklist(id, isAuthenticated);
 
-    if (row.hidden === 1 && !isAuthenticated) {
-        throw forbidden('Unauthorized. Valid PIN required to modify a hidden checklist.');
-    }
+    const { items, ...columns } = changes;
 
     return tx(() => {
-        let query = 'UPDATE checklists SET updatedAt = ?';
-        const params: any[] = [new Date().toISOString()];
-
-        if (typeof title !== 'undefined') {
-            query += ', title = ?';
-            params.push(title);
-        }
-        if (typeof pinned !== 'undefined') {
-            query += ', pinned = ?';
-            params.push(pinned ? 1 : 0);
-        }
-        if (typeof hidden !== 'undefined') {
-            query += ', hidden = ?';
-            params.push(hidden ? 1 : 0);
-        }
-        if (typeof archived !== 'undefined') {
-            query += ', archived = ?';
-            params.push(archived ? 1 : 0);
-        }
-        query += ' WHERE id = ?';
-        params.push(id);
-
-        dbRun(query, params);
+        updateRow('checklists', id, columns);
 
         // An items array replaces the whole set; omitting it leaves items alone.
-        if (Array.isArray(items)) {
+        if (items) {
             dbRun('DELETE FROM checklist_items WHERE checklistId = ?', [id]);
             insertItems(id, items);
         }
 
-        const updated = getChecklistById(Number(id));
+        const updated = getChecklistById(id);
         if (!updated) throw internal('Failed to retrieve updated checklist');
         return updated;
     });
 }
 
-export function deleteChecklist(id: string | number, isAuthenticated: boolean): void {
-    const row = dbGet('SELECT hidden FROM checklists WHERE id = ?', [id]);
-    if (!row) throw notFound('Checklist');
-
-    if (row.hidden === 1 && !isAuthenticated) {
-        throw forbidden('Unauthorized. Valid PIN required to delete a hidden checklist.');
-    }
-
+export function deleteChecklist(id: number, isAuthenticated: boolean): void {
+    requireChecklist(id, isAuthenticated, 'delete');
     dbRun('DELETE FROM checklists WHERE id = ?', [id]);
 }
 
-export function deleteBatchChecklists(ids: (string | number)[]): number {
+export function deleteBatchChecklists(ids: number[], isAuthenticated: boolean): number {
     if (ids.length === 0) return 0;
 
     const placeholders = ids.map(() => '?').join(',');
+
+    if (!isAuthenticated && dbGet(`SELECT 1 FROM checklists WHERE hidden = 1 AND id IN (${placeholders})`, ids)) {
+        throw forbidden('Unauthorized. Valid PIN required to delete hidden checklists.');
+    }
+
     return dbRun(`DELETE FROM checklists WHERE id IN (${placeholders})`, ids).changes;
 }
 
-function requireChecklist(checklistId: string | number, isAuthenticated: boolean): void {
+/**
+ * Loads a checklist for writing, enforcing the hidden-checklist PIN rule.
+ * `action` completes the message, e.g. "modify" / "delete".
+ */
+function requireChecklist(checklistId: number, isAuthenticated: boolean, action = 'modify'): void {
     const row = dbGet('SELECT hidden FROM checklists WHERE id = ?', [checklistId]);
     if (!row) throw notFound('Checklist');
 
     if (row.hidden === 1 && !isAuthenticated) {
-        throw forbidden('Unauthorized. Valid PIN required to modify a hidden checklist.');
+        throw forbidden(`Unauthorized. Valid PIN required to ${action} a hidden checklist.`);
     }
 }
 
@@ -142,7 +127,7 @@ function requireChecklist(checklistId: string | number, isAuthenticated: boolean
  * Resolves the checklist an item belongs to, enforcing the hidden-checklist
  * PIN rule. Throws if either the item or its checklist is missing.
  */
-function requireItemChecklist(itemId: string | number, isAuthenticated: boolean): number {
+function requireItemChecklist(itemId: number, isAuthenticated: boolean): number {
     const item = dbGet('SELECT checklistId FROM checklist_items WHERE id = ?', [itemId]);
     if (!item) throw notFound('Item');
 
@@ -150,15 +135,15 @@ function requireItemChecklist(itemId: string | number, isAuthenticated: boolean)
     return item.checklistId;
 }
 
-function touchChecklist(checklistId: string | number): void {
+function touchChecklist(checklistId: number): void {
     dbRun('UPDATE checklists SET updatedAt = ? WHERE id = ?', [new Date().toISOString(), checklistId]);
 }
 
 export function addItem(
-    checklistId: string | number,
+    checklistId: number,
     content: string,
-    checked: boolean,
-    position: number,
+    checked: boolean | undefined,
+    position: number | undefined,
     isAuthenticated: boolean
 ): ChecklistItemRow {
     requireChecklist(checklistId, isAuthenticated);
@@ -166,7 +151,7 @@ export function addItem(
     return tx(() => {
         const result = dbRun(
             'INSERT INTO checklist_items (checklistId, content, checked, position) VALUES (?, ?, ?, ?)',
-            [checklistId, content, checked ? 1 : 0, position || 0]
+            [checklistId, content, checked ? 1 : 0, position ?? 0]
         );
 
         touchChecklist(checklistId);
@@ -175,7 +160,7 @@ export function addItem(
 }
 
 export function updateItem(
-    itemId: string | number,
+    itemId: number,
     content: string | undefined,
     checked: boolean | undefined,
     position: number | undefined,
@@ -210,7 +195,7 @@ export function updateItem(
     });
 }
 
-export function deleteItem(itemId: string | number, isAuthenticated: boolean): void {
+export function deleteItem(itemId: number, isAuthenticated: boolean): void {
     const checklistId = requireItemChecklist(itemId, isAuthenticated);
 
     tx(() => {

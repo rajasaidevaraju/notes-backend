@@ -1,10 +1,19 @@
-import { dbQuery, dbRun, dbGet, tx } from '../database';
+import { dbQuery, dbRun, dbGet, tx, updateRow } from '../database';
 import { TrackerRow, TrackerEntryRow } from '../types/trackers';
 import { badRequest, forbidden, internal, notFound } from '../errors';
 
 export interface ImportEntry {
     value: string;
     recordedAt: string;
+}
+
+export interface TrackerChanges {
+    title?: string;
+    unit?: string | null;
+    pinned?: boolean;
+    hidden?: boolean;
+    archived?: boolean;
+    deletedEntryIds?: number[];
 }
 
 const TRACKER_SELECT = `
@@ -20,7 +29,7 @@ export function getAllVisibleTrackers(): TrackerRow[] {
 }
 
 export function getHiddenTrackers(): TrackerRow[] {
-    return formatTrackerRows(dbQuery(`${TRACKER_SELECT} WHERE t.hidden = 1 ${TRACKER_ORDER}`));
+    return formatTrackerRows(dbQuery(`${TRACKER_SELECT} WHERE t.hidden = 1 AND t.archived = 0 ${TRACKER_ORDER}`));
 }
 
 export function getArchivedTrackers(): TrackerRow[] {
@@ -37,7 +46,7 @@ export function getTrackerById(id: number): TrackerRow | null {
  * Loads a tracker for writing, enforcing the hidden-tracker PIN rule.
  * `action` completes the message, e.g. "modify" / "delete".
  */
-function requireTracker(id: string | number, isAuthenticated: boolean, action: string): void {
+function requireTracker(id: number, isAuthenticated: boolean, action: string): void {
     const row = dbGet('SELECT hidden FROM trackers WHERE id = ?', [id]);
     if (!row) throw notFound('Tracker');
 
@@ -46,7 +55,7 @@ function requireTracker(id: string | number, isAuthenticated: boolean, action: s
     }
 }
 
-function touchTracker(trackerId: string | number, at: string): void {
+function touchTracker(trackerId: number, at: string): void {
     dbRun('UPDATE trackers SET updatedAt = ? WHERE id = ?', [at, trackerId]);
 }
 
@@ -64,46 +73,14 @@ export function createTracker(title: string, unit: string | null, pinned: boolea
     });
 }
 
-export function updateTracker(
-    id: string | number,
-    title: string | undefined,
-    unit: string | null | undefined,
-    pinned: boolean | undefined,
-    hidden: boolean | undefined,
-    archived: boolean | undefined,
-    isAuthenticated: boolean,
-    deletedEntryIds?: number[]
-): TrackerRow {
+/** Partial update: every field left undefined keeps its current value. */
+export function updateTracker(id: number, changes: TrackerChanges, isAuthenticated: boolean): TrackerRow {
     requireTracker(id, isAuthenticated, 'modify');
 
+    const { deletedEntryIds, ...columns } = changes;
+
     return tx(() => {
-        let query = 'UPDATE trackers SET updatedAt = ?';
-        const params: any[] = [new Date().toISOString()];
-
-        if (typeof title !== 'undefined') {
-            query += ', title = ?';
-            params.push(title);
-        }
-        if (typeof unit !== 'undefined') {
-            query += ', unit = ?';
-            params.push(unit);
-        }
-        if (typeof pinned !== 'undefined') {
-            query += ', pinned = ?';
-            params.push(pinned ? 1 : 0);
-        }
-        if (typeof hidden !== 'undefined') {
-            query += ', hidden = ?';
-            params.push(hidden ? 1 : 0);
-        }
-        if (typeof archived !== 'undefined') {
-            query += ', archived = ?';
-            params.push(archived ? 1 : 0);
-        }
-        query += ' WHERE id = ?';
-        params.push(id);
-
-        dbRun(query, params);
+        updateRow('trackers', id, columns);
 
         if (deletedEntryIds && deletedEntryIds.length > 0) {
             const placeholders = deletedEntryIds.map(() => '?').join(',');
@@ -113,25 +90,30 @@ export function updateTracker(
             );
         }
 
-        const updated = getTrackerById(Number(id));
+        const updated = getTrackerById(id);
         if (!updated) throw internal('Failed to retrieve updated tracker');
         return updated;
     });
 }
 
-export function deleteTracker(id: string | number, isAuthenticated: boolean): void {
+export function deleteTracker(id: number, isAuthenticated: boolean): void {
     requireTracker(id, isAuthenticated, 'delete');
     dbRun('DELETE FROM trackers WHERE id = ?', [id]);
 }
 
-export function deleteBatchTrackers(ids: (string | number)[]): number {
+export function deleteBatchTrackers(ids: number[], isAuthenticated: boolean): number {
     if (ids.length === 0) return 0;
 
     const placeholders = ids.map(() => '?').join(',');
+
+    if (!isAuthenticated && dbGet(`SELECT 1 FROM trackers WHERE hidden = 1 AND id IN (${placeholders})`, ids)) {
+        throw forbidden('Unauthorized. Valid PIN required to delete hidden trackers.');
+    }
+
     return dbRun(`DELETE FROM trackers WHERE id IN (${placeholders})`, ids).changes;
 }
 
-export function addEntry(trackerId: string | number, value: string, isAuthenticated: boolean): TrackerEntryRow {
+export function addEntry(trackerId: number, value: string, isAuthenticated: boolean): TrackerEntryRow {
     requireTracker(trackerId, isAuthenticated, 'modify');
 
     return tx(() => {
@@ -147,7 +129,7 @@ export function addEntry(trackerId: string | number, value: string, isAuthentica
     });
 }
 
-export function updateEntry(entryId: string | number, value: string, isAuthenticated: boolean): TrackerEntryRow {
+export function updateEntry(entryId: number, value: string, isAuthenticated: boolean): TrackerEntryRow {
     const entry = dbGet('SELECT trackerId FROM tracker_entries WHERE id = ?', [entryId]);
     if (!entry) throw notFound('Entry');
 

@@ -42,7 +42,8 @@ export const pinRateLimiter = (req: Request, res: Response, next: NextFunction) 
   if (record && now < record.resetTime) {
     if (record.count >= MAX_ATTEMPTS) {
       const timeLeft = Math.ceil((record.resetTime - now) / (1000 * 60));
-      res.set('Retry-After', record.resetTime.toString());
+      // Retry-After is a delay in seconds, not a timestamp
+      res.set('Retry-After', Math.ceil((record.resetTime - now) / 1000).toString());
       res.status(429).json({error: `Too many failed attempts. Please try again in ${timeLeft} minutes.`,});
       return;
     }

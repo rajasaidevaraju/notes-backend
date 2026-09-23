@@ -1,23 +1,32 @@
-import { dbQuery, dbRun, dbGet } from '../database';
+import { dbQuery, dbRun, dbGet, updateRow } from '../database';
 import { NoteRow } from '../types/notes';
 import { CLIPBOARD_NOTE_TITLE } from '../constants';
 import { badRequest, forbidden, notFound } from '../errors';
 
 const NOTE_COLUMNS = 'id, title, content, createdAt, updatedAt, pinned, hidden, archived';
+const NOTE_ORDER = 'ORDER BY pinned DESC, createdAt DESC';
+
+export interface NoteChanges {
+    title?: string;
+    content?: string | null;
+    pinned?: boolean;
+    hidden?: boolean;
+    archived?: boolean;
+}
 
 export function getAllVisibleNotes(): NoteRow[] {
-    return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE hidden = 0 AND archived = 0`);
+    return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE hidden = 0 AND archived = 0 ${NOTE_ORDER}`);
 }
 
 export function getHiddenNotes(): NoteRow[] {
-    return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE hidden = 1`);
+    return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE hidden = 1 AND archived = 0 ${NOTE_ORDER}`);
 }
 
 export function getArchivedNotes(): NoteRow[] {
-    return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE archived = 1`);
+    return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE archived = 1 ${NOTE_ORDER}`);
 }
 
-export function createNote(title: string, content: string, pinned: boolean, hidden: boolean): NoteRow {
+export function createNote(title: string, content: string | null, pinned: boolean, hidden: boolean): NoteRow {
     if (title === CLIPBOARD_NOTE_TITLE) {
         throw badRequest(`Cannot create a note with the reserved title "${CLIPBOARD_NOTE_TITLE}".`);
     }
@@ -32,15 +41,8 @@ export function createNote(title: string, content: string, pinned: boolean, hidd
     return dbGet(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = ?`, [result.lastID]);
 }
 
-export function updateNote(
-    id: string | number,
-    title: string,
-    content: string,
-    pinned: boolean | undefined,
-    hidden: boolean | undefined,
-    archived: boolean | undefined,
-    isAuthenticated: boolean
-): NoteRow {
+/** Partial update: every field left undefined keeps its current value. */
+export function updateNote(id: number, changes: NoteChanges, isAuthenticated: boolean): NoteRow {
     const existingNote = dbGet('SELECT title, hidden FROM notes WHERE id = ?', [id]);
 
     if (!existingNote) {
@@ -51,47 +53,27 @@ export function updateNote(
         throw forbidden('Unauthorized. Valid PIN required to modify a hidden note.');
     }
 
-    const now = new Date().toISOString();
+    const { title, pinned, hidden, archived } = changes;
 
     if (existingNote.title === CLIPBOARD_NOTE_TITLE) {
         if (
-            title !== CLIPBOARD_NOTE_TITLE ||
-            (typeof pinned !== 'undefined' && Number(pinned) !== 1) ||
-            (typeof archived !== 'undefined' && Number(archived) === 1)
+            (typeof title !== 'undefined' && title !== CLIPBOARD_NOTE_TITLE) ||
+            pinned === false ||
+            hidden === true ||
+            archived === true
         ) {
-            throw forbidden('Cannot change title, unpin, or archive the special clipboard note.');
+            throw forbidden('Cannot change title, unpin, hide, or archive the special clipboard note.');
         }
-        dbRun('UPDATE notes SET content = ?, updatedAt = ? WHERE id = ?', [content, now, id]);
-    } else {
-        if (title === CLIPBOARD_NOTE_TITLE) {
-            throw forbidden(`Cannot change note title to the reserved title "${CLIPBOARD_NOTE_TITLE}".`);
-        }
-
-        let query = 'UPDATE notes SET title = ?, content = ?, updatedAt = ?';
-        const params: (string | number | boolean | null)[] = [title, content, now];
-
-        if (typeof pinned !== 'undefined') {
-            query += ', pinned = ?';
-            params.push(pinned ? 1 : 0);
-        }
-        if (typeof hidden !== 'undefined') {
-            query += ', hidden = ?';
-            params.push(hidden ? 1 : 0);
-        }
-        if (typeof archived !== 'undefined') {
-            query += ', archived = ?';
-            params.push(archived ? 1 : 0);
-        }
-        query += ' WHERE id = ?';
-        params.push(id);
-
-        dbRun(query, params);
+    } else if (title === CLIPBOARD_NOTE_TITLE) {
+        throw forbidden(`Cannot change note title to the reserved title "${CLIPBOARD_NOTE_TITLE}".`);
     }
+
+    updateRow('notes', id, { ...changes });
 
     return dbGet(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = ?`, [id]);
 }
 
-export function deleteNote(id: string | number, isAuthenticated: boolean): void {
+export function deleteNote(id: number, isAuthenticated: boolean): void {
     const existingNote = dbGet('SELECT title, hidden FROM notes WHERE id = ?', [id]);
 
     if (!existingNote) {
@@ -109,11 +91,15 @@ export function deleteNote(id: string | number, isAuthenticated: boolean): void 
     dbRun('DELETE FROM notes WHERE id = ?', [id]);
 }
 
-export function deleteBatchNotes(ids: (string | number)[]): number {
+export function deleteBatchNotes(ids: number[], isAuthenticated: boolean): number {
     if (ids.length === 0) return 0;
 
     const placeholders = ids.map(() => '?').join(',');
     const notes = dbQuery(`SELECT id, title, hidden FROM notes WHERE id IN (${placeholders})`, ids);
+
+    if (!isAuthenticated && notes.some(row => row.hidden === 1)) {
+        throw forbidden('Unauthorized. Valid PIN required to delete hidden notes.');
+    }
 
     const clipboardNote = notes.find(row => row.title === CLIPBOARD_NOTE_TITLE);
     if (clipboardNote) {
