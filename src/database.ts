@@ -20,29 +20,26 @@ db.pragma('foreign_keys = ON');
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
-function addColumnIfNotExists(tableName: string, columnName: string, columnDef: string): void {
+function columnsOf(tableName: string): Set<string> {
   const tableInfo = db.prepare(`PRAGMA table_info(${tableName})`).all() as any[];
-  const exists = tableInfo.some(row => row.name === columnName);
+  return new Set(tableInfo.map(row => row.name));
+}
 
-  if (!exists) {
+function addColumnIfNotExists(tableName: string, columnName: string, columnDef: string): void {
+  if (!columnsOf(tableName).has(columnName)) {
     console.log(`Column "${columnName}" does not exist in ${tableName}. Adding it now...`);
     db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDef}`).run();
     console.log(`Column "${columnName}" added to ${tableName}.`);
   }
 }
 
-// Same shape as Date#toISOString(), so SQL defaults and app-written
-// timestamps sort and parse identically.
+
 const ISO_NOW = `(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
 
-/**
- * Rows written before the app set its own timestamps got SQLite's
- * CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS", UTC but zone-less). JS parses
- * that as local time and it string-sorts wrong against ISO values, so rewrite
- * it as ISO. Idempotent: only non-ISO rows match.
- */
+
 function normalizeTimestamps(tableName: string, columns: string[]): void {
-  for (const column of columns) {
+  const existing = columnsOf(tableName);
+  for (const column of columns.filter(c => existing.has(c))) {
     db.prepare(
       `UPDATE ${tableName} SET ${column} = strftime('%Y-%m-%dT%H:%M:%fZ', ${column})
        WHERE ${column} NOT LIKE '%T%' AND strftime('%Y-%m-%dT%H:%M:%fZ', ${column}) IS NOT NULL`

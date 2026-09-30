@@ -24,6 +24,8 @@ dist/
 *.sqlite3
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 /data/*.sqlite # If your database files are in a 'data' directory
 
 # Editor/IDE specific files

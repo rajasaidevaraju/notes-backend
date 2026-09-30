@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { forbidden } from '../errors';
+import { unauthorized } from '../errors';
 
 export const isAuthenticated = (req: Request): boolean => {
     const correctPin = process.env.HIDDEN_NOTES_PIN;
@@ -8,7 +8,7 @@ export const isAuthenticated = (req: Request): boolean => {
 
 export const requireAuth = (req: Request, _res: Response, next: NextFunction) => {
     if (!isAuthenticated(req)) {
-        return next(forbidden('Unauthorized'));
+        return next(unauthorized('Unauthorized'));
     }
 
     next();
