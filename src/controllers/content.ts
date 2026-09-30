@@ -6,7 +6,7 @@ import * as NoteService from '../services/note';
 import * as ChecklistService from '../services/checklist';
 import * as TrackerService from '../services/tracker';
 import { badRequest } from '../errors';
-import { tx } from '../database';
+import { tx, ContentCounts } from '../database';
 import { isAuthenticated } from '../middleware/auth';
 
 export type UnifiedItem =
@@ -23,7 +23,7 @@ const merge = (notes: NoteRow[], checklists: ChecklistRow[], trackers: TrackerRo
 
     mixed.sort((a, b) => {
         if (a.pinned !== b.pinned) return (b.pinned || 0) - (a.pinned || 0);
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0;
     });
 
     return mixed;
@@ -51,6 +51,20 @@ export const getArchivedContent = (req: Request, res: Response) => {
         ChecklistService.getArchivedChecklists(),
         TrackerService.getArchivedTrackers()
     ));
+};
+
+export const getContentCounts = (req: Request, res: Response) => {
+    const counts = tx(() => [
+        NoteService.countNotes(),
+        ChecklistService.countChecklists(),
+        TrackerService.countTrackers(),
+    ]);
+    const sum = (key: keyof ContentCounts) => counts.reduce((total, c) => total + c[key], 0);
+
+    res.json({
+        archived: sum('archived'),
+        ...(isAuthenticated(req) && { hidden: sum('hidden') }),
+    });
 };
 
 const CONTENT_TYPES = ['note', 'checklist', 'tracker'] as const;

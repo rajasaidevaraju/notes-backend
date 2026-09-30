@@ -1,4 +1,4 @@
-import { dbQuery, dbRun, dbGet, tx, updateRow } from '../database';
+import { dbQuery, dbRun, dbGet, tx, updateRow, COUNT_COLUMNS, ContentCounts } from '../database';
 import { ChecklistRow, ChecklistItemRow } from '../types/checklists';
 import { badRequest, forbidden, internal, notFound } from '../errors';
 import { ChecklistItemInput } from '../validation';
@@ -21,6 +21,10 @@ export function getHiddenChecklists(): ChecklistRow[] {
 
 export function getArchivedChecklists(): ChecklistRow[] {
     return formatChecklistRows(dbQuery(`${CHECKLIST_SELECT} WHERE c.archived = 1 ${CHECKLIST_ORDER}`));
+}
+
+export function countChecklists(): ContentCounts {
+    return dbGet(`SELECT ${COUNT_COLUMNS} FROM checklists`);
 }
 
 export function getChecklistById(id: number): ChecklistRow | null {

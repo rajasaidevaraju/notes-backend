@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database, { Statement } from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import 'dotenv/config';
@@ -16,9 +16,9 @@ if (!fs.existsSync(dbDirectory)) {
 }
 
 const db = new Database(dbPath);
-// SQLite ships with FK enforcement off; without this, ON DELETE CASCADE
-// (checklist_items, tracker_entries) silently leaves orphan rows
 db.pragma('foreign_keys = ON');
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
 
 function addColumnIfNotExists(tableName: string, columnName: string, columnDef: string): void {
   const tableInfo = db.prepare(`PRAGMA table_info(${tableName})`).all() as any[];
@@ -106,6 +106,9 @@ function initializeDatabase(): void {
 
     CREATE INDEX IF NOT EXISTS idx_tracker_entries_tracker_time
       ON tracker_entries(trackerId, recordedAt DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_checklist_items_checklist_position
+      ON checklist_items(checklistId, position);
   `);
 
   console.log('Database schema initialized or already exists.');
@@ -127,16 +130,33 @@ function initializeDatabase(): void {
 }
 
 
+const STATEMENT_CACHE_SIZE = 100;
+const statementCache = new Map<string, Statement>();
+
+const prepare = (sql: string): Statement => {
+  let stmt = statementCache.get(sql);
+  if (stmt) {
+    statementCache.delete(sql);
+  } else {
+    stmt = db.prepare(sql);
+    if (statementCache.size >= STATEMENT_CACHE_SIZE) {
+      statementCache.delete(statementCache.keys().next().value!);
+    }
+  }
+  statementCache.set(sql, stmt);
+  return stmt;
+};
+
 export const dbQuery = (sql: string, params: any[] = []): any[] => {
-  return db.prepare(sql).all(...params) as any[];
+  return prepare(sql).all(...params) as any[];
 };
 
 export const dbGet = (sql: string, params: any[] = []): any => {
-  return db.prepare(sql).get(...params);
+  return prepare(sql).get(...params);
 };
 
 export const dbRun = (sql: string, params: any[] = []): { lastID: number; changes: number } => {
-  const result = db.prepare(sql).run(...params);
+  const result = prepare(sql).run(...params);
   return {
     lastID: Number(result.lastInsertRowid),
     changes: result.changes
@@ -165,5 +185,13 @@ export const updateRow = (table: string, id: number, columns: Record<string, unk
 
   dbRun(`UPDATE ${table} SET ${assignments.join(', ')} WHERE id = ?`, params);
 };
+
+export interface ContentCounts {
+  hidden: number;
+  archived: number;
+}
+
+export const COUNT_COLUMNS =
+  'COALESCE(SUM(hidden = 1 AND archived = 0), 0) AS hidden, COALESCE(SUM(archived = 1), 0) AS archived';
 
 export { db, initializeDatabase };

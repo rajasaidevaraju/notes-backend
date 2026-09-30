@@ -1,4 +1,4 @@
-import { dbQuery, dbRun, dbGet, updateRow } from '../database';
+import { dbQuery, dbRun, dbGet, updateRow, COUNT_COLUMNS, ContentCounts } from '../database';
 import { NoteRow } from '../types/notes';
 import { CLIPBOARD_NOTE_TITLE } from '../constants';
 import { badRequest, forbidden, notFound } from '../errors';
@@ -24,6 +24,10 @@ export function getHiddenNotes(): NoteRow[] {
 
 export function getArchivedNotes(): NoteRow[] {
     return dbQuery(`SELECT ${NOTE_COLUMNS} FROM notes WHERE archived = 1 ${NOTE_ORDER}`);
+}
+
+export function countNotes(): ContentCounts {
+    return dbGet(`SELECT ${COUNT_COLUMNS} FROM notes`);
 }
 
 export function createNote(title: string, content: string | null, pinned: boolean, hidden: boolean): NoteRow {

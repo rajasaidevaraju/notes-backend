@@ -1,4 +1,4 @@
-import { dbQuery, dbRun, dbGet, tx, updateRow } from '../database';
+import { dbQuery, dbRun, dbGet, tx, updateRow, COUNT_COLUMNS, ContentCounts } from '../database';
 import { TrackerRow, TrackerEntryRow } from '../types/trackers';
 import { badRequest, forbidden, internal, notFound } from '../errors';
 
@@ -34,6 +34,10 @@ export function getHiddenTrackers(): TrackerRow[] {
 
 export function getArchivedTrackers(): TrackerRow[] {
     return formatTrackerRows(dbQuery(`${TRACKER_SELECT} WHERE t.archived = 1 ${TRACKER_ORDER}`));
+}
+
+export function countTrackers(): ContentCounts {
+    return dbGet(`SELECT ${COUNT_COLUMNS} FROM trackers`);
 }
 
 export function getTrackerById(id: number): TrackerRow | null {

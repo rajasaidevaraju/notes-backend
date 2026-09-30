@@ -7,6 +7,7 @@ const router = express.Router();
 router.get('/', ContentController.getAllContent);
 router.get('/hidden', requireAuth, ContentController.getHiddenContent);
 router.get('/archived', ContentController.getArchivedContent);
+router.get('/counts', ContentController.getContentCounts);
 router.delete('/batch', ContentController.deleteBatchContent);
 
 export default router;
