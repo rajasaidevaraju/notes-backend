@@ -9,8 +9,7 @@ const UPSTREAM_DOWN =
     `Vite dev server is not reachable on http://${TARGET_HOST}:${TARGET_PORT}. ` +
     `Start the frontend, or run the backend with NODE_ENV=production to serve the built files.`;
 
-// ECONNREFUSED arrives as an AggregateError with an empty message when the host
-// resolves to both ::1 and 127.0.0.1, so fall back to the code.
+// ECONNREFUSED can arrive as an AggregateError with an empty message.
 const describeError = (err: Error & { code?: string }): string =>
     err.message || err.code || String(err);
 
@@ -38,16 +37,11 @@ export const devProxy = (req: Request, res: Response, next: NextFunction) => {
         res.status(502).type('text').send(UPSTREAM_DOWN);
     });
 
-    // If the client disconnects mid-flight, stop work upstream too.
     res.on('close', () => upstream.destroy());
 
     req.pipe(upstream);
 };
 
-/**
- * Forwards protocol upgrades, which is how Vite's HMR websocket connects.
- * Register on the http.Server itself — upgrades never reach the express stack.
- */
 export const devProxyUpgrade = (req: http.IncomingMessage, socket: Duplex, head: Buffer) => {
     const upstream = http.request({
         host: TARGET_HOST,

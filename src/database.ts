@@ -33,9 +33,7 @@ function addColumnIfNotExists(tableName: string, columnName: string, columnDef: 
   }
 }
 
-
 const ISO_NOW = `(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`;
-
 
 function normalizeTimestamps(tableName: string, columns: string[]): void {
   const existing = columnsOf(tableName);
@@ -47,7 +45,6 @@ function normalizeTimestamps(tableName: string, columns: string[]): void {
   }
 }
 
-/** Throws on failure; the caller decides whether that is fatal. */
 function initializeDatabase(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS notes (
@@ -126,7 +123,6 @@ function initializeDatabase(): void {
   });
 }
 
-
 const STATEMENT_CACHE_SIZE = 100;
 const statementCache = new Map<string, Statement>();
 
@@ -160,17 +156,8 @@ export const dbRun = (sql: string, params: any[] = []): { lastID: number; change
   };
 };
 
-/**
- * Runs fn in a transaction: atomic, and rolled back if fn throws. Because
- * everything inside is synchronous, no other request can interleave.
- */
 export const tx = <T>(fn: () => T): T => db.transaction(fn)();
 
-/**
- * Partial update: sets updatedAt plus every column whose value is not
- * undefined, so omitting a field always means "leave it alone". Booleans are
- * stored as 0/1. `table` and the column names are trusted identifiers.
- */
 export const updateRow = (table: string, id: number, columns: Record<string, unknown>): void => {
   const set = Object.entries(columns).filter(([, value]) => typeof value !== 'undefined');
   const assignments = ['updatedAt = ?', ...set.map(([column]) => `${column} = ?`)];

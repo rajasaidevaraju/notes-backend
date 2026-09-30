@@ -33,7 +33,6 @@ export function getChecklistById(id: number): ChecklistRow | null {
     return formatChecklistRows(rows)[0] || null;
 }
 
-/** Bulk-inserts items for a checklist. No-op for an empty list. */
 function insertItems(checklistId: number, items: ChecklistItemInput[]): void {
     if (items.length === 0) return;
 
@@ -76,7 +75,6 @@ export function createChecklist(
     });
 }
 
-/** Partial update: every field left undefined keeps its current value. */
 export function updateChecklist(id: number, changes: ChecklistChanges, isAuthenticated: boolean): ChecklistRow {
     requireChecklist(id, isAuthenticated);
 
@@ -85,7 +83,6 @@ export function updateChecklist(id: number, changes: ChecklistChanges, isAuthent
     return tx(() => {
         updateRow('checklists', id, columns);
 
-        // An items array replaces the whole set; omitting it leaves items alone.
         if (items) {
             dbRun('DELETE FROM checklist_items WHERE checklistId = ?', [id]);
             insertItems(id, items);
@@ -114,10 +111,6 @@ export function deleteBatchChecklists(ids: number[], isAuthenticated: boolean): 
     return dbRun(`DELETE FROM checklists WHERE id IN (${placeholders})`, ids).changes;
 }
 
-/**
- * Loads a checklist for writing, enforcing the hidden-checklist PIN rule.
- * `action` completes the message, e.g. "modify" / "delete".
- */
 function requireChecklist(checklistId: number, isAuthenticated: boolean, action = 'modify'): void {
     const row = dbGet('SELECT hidden FROM checklists WHERE id = ?', [checklistId]);
     if (!row) throw notFound('Checklist');
@@ -127,10 +120,6 @@ function requireChecklist(checklistId: number, isAuthenticated: boolean, action 
     }
 }
 
-/**
- * Resolves the checklist an item belongs to, enforcing the hidden-checklist
- * PIN rule. Throws if either the item or its checklist is missing.
- */
 function requireItemChecklist(itemId: number, isAuthenticated: boolean): number {
     const item = dbGet('SELECT checklistId FROM checklist_items WHERE id = ?', [itemId]);
     if (!item) throw notFound('Item');

@@ -45,7 +45,6 @@ export function createNote(title: string, content: string | null, pinned: boolea
     return dbGet(`SELECT ${NOTE_COLUMNS} FROM notes WHERE id = ?`, [result.lastID]);
 }
 
-/** Partial update: every field left undefined keeps its current value. */
 export function updateNote(id: number, changes: NoteChanges, isAuthenticated: boolean): NoteRow {
     const existingNote = dbGet('SELECT title, hidden FROM notes WHERE id = ?', [id]);
 

@@ -71,7 +71,7 @@ const CONTENT_TYPES = ['note', 'checklist', 'tracker'] as const;
 type ContentType = typeof CONTENT_TYPES[number];
 
 export const deleteBatchContent = (req: Request, res: Response) => {
-    const { items } = req.body; // Expecting [{ id: 1, type: 'note' }, { id: 2, type: 'checklist' }]
+    const { items } = req.body;
 
     if (!Array.isArray(items) || items.length === 0) {
         throw badRequest('An array of items (id, type) is required.');
@@ -87,7 +87,6 @@ export const deleteBatchContent = (req: Request, res: Response) => {
         items.filter((item) => item.type === type).map((item) => item.id);
     const authenticated = isAuthenticated(req);
 
-    // All or nothing: a refused hidden item must not leave the rest half-deleted.
     const deleted = tx(() =>
         NoteService.deleteBatchNotes(idsOfType('note'), authenticated) +
         ChecklistService.deleteBatchChecklists(idsOfType('checklist'), authenticated) +

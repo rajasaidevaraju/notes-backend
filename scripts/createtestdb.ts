@@ -1,9 +1,7 @@
 import path from 'path';
 import fs from 'fs';
 
-// Populate a dedicated test database with fixtures. The db module opens
-// DATABASE_PATH the moment it loads, so point it at the test file *before*
-// requiring it (require, not import, to guarantee this runs first).
+// Must stay a require after this line: the db module opens DATABASE_PATH on load.
 const testDbPath = path.join(__dirname, '..', 'data', 'test.db');
 fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
 process.env.DATABASE_PATH = testDbPath;

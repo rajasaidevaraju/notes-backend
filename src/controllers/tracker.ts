@@ -26,7 +26,6 @@ export const getArchivedTrackers = (req: Request, res: Response) => {
     res.json(TrackerService.getArchivedTrackers());
 };
 
-// The limit applies after trimming, so it is checked here rather than by requireString.
 const requireValue = (value: unknown): string => {
     const trimmed = requireString(value, 'Value', Infinity).trim();
     if (trimmed.length > LIMITS.TRACKER_VALUE) {

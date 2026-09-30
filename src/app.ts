@@ -22,7 +22,6 @@ import * as NoteService from './services/note';
 const app = express();
 const port = process.env.PORT || 3002;
 
-
 app.set('trust proxy', false);
 
 app.use(express.json({ limit: '256kb' }));
@@ -59,11 +58,8 @@ if (process.env.NODE_ENV === 'production') {
   app.use(devProxy);
 }
 
-// Last: every next(err) and every throw from a handler above lands here.
 app.use(errorHandler);
 
-// Schema first: serving requests against a missing or half-migrated schema
-// only produces confusing 500s, so a failure here stops the process.
 try {
   initializeDatabase();
   NoteService.initializeClipboardNote();
@@ -77,7 +73,7 @@ const server = app.listen(port, () => {
   console.log(`Server is running on http://localhost:${port}`);
 });
 if (process.env.NODE_ENV !== 'production') {
-  // Vite's HMR websocket: upgrades bypass the express middleware stack.
+  // WebSocket upgrades (Vite HMR) bypass the express middleware stack.
   server.on('upgrade', devProxyUpgrade);
 }
 
@@ -101,11 +97,6 @@ function closeDatabase(): void {
 
 let shuttingDown = false;
 
-/**
- * Stops accepting connections, lets in-flight requests finish, then closes
- * the database. A stuck keep-alive socket can't hold the exit hostage: the
- * timer forces it after a few seconds.
- */
 function shutdown(reason: string, exitCode: number): void {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -125,11 +116,8 @@ function shutdown(reason: string, exitCode: number): void {
 }
 
 process.on('SIGINT', () => shutdown('SIGINT', 0));
-// PM2 and most process managers stop a process with SIGTERM
 process.on('SIGTERM', () => shutdown('SIGTERM', 0));
 
-// After an uncaught error the process is in an unknown state; carrying on
-// risks serving bad data. Log it and exit so the process manager restarts us.
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err);
   shutdown('uncaughtException', 1);

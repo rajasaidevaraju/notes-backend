@@ -46,10 +46,6 @@ export function getTrackerById(id: number): TrackerRow | null {
     return formatTrackerRows(rows)[0] || null;
 }
 
-/**
- * Loads a tracker for writing, enforcing the hidden-tracker PIN rule.
- * `action` completes the message, e.g. "modify" / "delete".
- */
 function requireTracker(id: number, isAuthenticated: boolean, action: string): void {
     const row = dbGet('SELECT hidden FROM trackers WHERE id = ?', [id]);
     if (!row) throw notFound('Tracker');
@@ -77,7 +73,6 @@ export function createTracker(title: string, unit: string | null, pinned: boolea
     });
 }
 
-/** Partial update: every field left undefined keeps its current value. */
 export function updateTracker(id: number, changes: TrackerChanges, isAuthenticated: boolean): TrackerRow {
     requireTracker(id, isAuthenticated, 'modify');
 
@@ -121,7 +116,6 @@ export function addEntry(trackerId: number, value: string, isAuthenticated: bool
     requireTracker(trackerId, isAuthenticated, 'modify');
 
     return tx(() => {
-        // recordedAt is always server time — clients never send timestamps here
         const now = new Date().toISOString();
         const result = dbRun(
             'INSERT INTO tracker_entries (trackerId, value, recordedAt) VALUES (?, ?, ?)',
@@ -146,11 +140,6 @@ export function updateEntry(entryId: number, value: string, isAuthenticated: boo
     });
 }
 
-/**
- * Bulk import for migrating existing data. Entries carry their own
- * recordedAt dates. Creates a new tracker unless trackerId is given,
- * in which case entries are appended to it.
- */
 export function importTracker(
     title: string | undefined,
     unit: string | null,

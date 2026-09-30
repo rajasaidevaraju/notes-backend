@@ -1,11 +1,5 @@
 import { badRequest } from './errors';
 
-/**
- * Body-field validators. Each returns the cleaned value, or `undefined` when
- * an optional field is absent (meaning "leave it alone" on updates), and
- * throws a 400 on anything else, so a wrong type never reaches SQLite.
- */
-
 export function optionalString(value: unknown, field: string, max: number): string | undefined {
     if (typeof value === 'undefined') return undefined;
     if (typeof value !== 'string') throw badRequest(`${field} must be a string.`);
@@ -19,20 +13,17 @@ export function requireString(value: unknown, field: string, max: number): strin
     return str;
 }
 
-/** Like optionalString, but also rejects an empty/blank string when given. */
 export function optionalTitle(value: unknown, max: number): string | undefined {
     const title = optionalString(value, 'Title', max);
     if (typeof title !== 'undefined' && !title.trim()) throw badRequest('Title cannot be empty');
     return title;
 }
 
-/** A string, or null to clear it. */
 export function optionalNullableString(value: unknown, field: string, max: number): string | null | undefined {
     if (value === null) return null;
     return optionalString(value, field, max);
 }
 
-/** Accepts booleans and the 0/1 the API itself returns for flags. */
 export function optionalFlag(value: unknown, field: string): boolean | undefined {
     if (typeof value === 'undefined') return undefined;
     if (typeof value === 'boolean') return value;
