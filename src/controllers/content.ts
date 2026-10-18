@@ -5,6 +5,7 @@ import { TrackerRow } from '../types/trackers';
 import * as NoteService from '../services/note';
 import * as ChecklistService from '../services/checklist';
 import * as TrackerService from '../services/tracker';
+import * as AccountService from '../services/account';
 import { badRequest } from '../errors';
 import { tx, ContentCounts } from '../database';
 import { isAuthenticated } from '../middleware/auth';
@@ -54,20 +55,20 @@ export const getArchivedContent = (req: Request, res: Response) => {
 };
 
 export const getContentCounts = (req: Request, res: Response) => {
-    const counts = tx(() => [
-        NoteService.countNotes(),
-        ChecklistService.countChecklists(),
-        TrackerService.countTrackers(),
-    ]);
+    const [counts, accounts] = tx(() => [
+        [NoteService.countNotes(), ChecklistService.countChecklists(), TrackerService.countTrackers()],
+        AccountService.countAccounts(),
+    ] as const);
     const sum = (key: keyof ContentCounts) => counts.reduce((total, c) => total + c[key], 0);
 
     res.json({
         archived: sum('archived'),
+        accounts,
         ...(isAuthenticated(req) && { hidden: sum('hidden') }),
     });
 };
 
-const CONTENT_TYPES = ['note', 'checklist', 'tracker'] as const;
+const CONTENT_TYPES = ['note', 'checklist', 'tracker', 'account'] as const;
 type ContentType = typeof CONTENT_TYPES[number];
 
 export const deleteBatchContent = (req: Request, res: Response) => {
@@ -79,7 +80,7 @@ export const deleteBatchContent = (req: Request, res: Response) => {
 
     for (const item of items) {
         if (!CONTENT_TYPES.includes(item?.type) || !Number.isInteger(item?.id) || item.id <= 0) {
-            throw badRequest('Each item needs a positive integer id and a type of note, checklist or tracker.');
+            throw badRequest('Each item needs a positive integer id and a type of note, checklist, tracker or account.');
         }
     }
 
@@ -90,7 +91,8 @@ export const deleteBatchContent = (req: Request, res: Response) => {
     const deleted = tx(() =>
         NoteService.deleteBatchNotes(idsOfType('note'), authenticated) +
         ChecklistService.deleteBatchChecklists(idsOfType('checklist'), authenticated) +
-        TrackerService.deleteBatchTrackers(idsOfType('tracker'), authenticated)
+        TrackerService.deleteBatchTrackers(idsOfType('tracker'), authenticated) +
+        AccountService.deleteBatchAccounts(idsOfType('account'))
     );
 
     res.status(200).json({ message: `Successfully deleted ${deleted} items.` });

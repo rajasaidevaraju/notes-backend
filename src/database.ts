@@ -98,6 +98,24 @@ function initializeDatabase(): void {
       FOREIGN KEY (trackerId) REFERENCES trackers(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS account_groups (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      createdAt TEXT DEFAULT ${ISO_NOW}
+    );
+
+    CREATE TABLE IF NOT EXISTS accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      groupId INTEGER,
+      identifier TEXT NOT NULL,
+      password TEXT,
+      notes TEXT,
+      createdAt TEXT DEFAULT ${ISO_NOW},
+      updatedAt TEXT DEFAULT ${ISO_NOW},
+      pinned INTEGER DEFAULT 0,
+      FOREIGN KEY (groupId) REFERENCES account_groups(id) ON DELETE SET NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_tracker_entries_tracker_time
       ON tracker_entries(trackerId, recordedAt DESC);
 

@@ -19,6 +19,12 @@ export function optionalTitle(value: unknown, max: number): string | undefined {
     return title;
 }
 
+export function optionalNonEmptyString(value: unknown, field: string, max: number): string | undefined {
+    const str = optionalString(value, field, max);
+    if (typeof str !== 'undefined' && !str.trim()) throw badRequest(`${field} cannot be empty`);
+    return str;
+}
+
 export function optionalNullableString(value: unknown, field: string, max: number): string | null | undefined {
     if (value === null) return null;
     return optionalString(value, field, max);
@@ -57,6 +63,12 @@ export function optionalChecklistItems(value: unknown, max: number): ChecklistIt
             position: optionalPosition(item.position),
         };
     });
+}
+
+export function optionalNullableId(value: unknown, field: string): number | null | undefined {
+    if (value === null || typeof value === 'undefined') return value;
+    if (!Number.isInteger(value) || (value as number) <= 0) throw badRequest(`${field} must be a positive integer or null.`);
+    return value as number;
 }
 
 export const isPositiveInteger = (value: unknown): boolean =>
