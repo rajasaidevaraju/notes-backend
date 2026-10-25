@@ -1,6 +1,5 @@
 export interface AccountRow {
     id: number;
-    groupId: number | null;
     identifier: string;
     password: string | null;
     notes: string | null;
@@ -10,11 +9,6 @@ export interface AccountRow {
 }
 
 export interface AccountView extends AccountRow {
+    tagIds: number[];
     locked: boolean;
-}
-
-export interface AccountGroupRow {
-    id: number;
-    name: string;
-    createdAt: string;
 }

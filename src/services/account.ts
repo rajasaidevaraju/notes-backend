@@ -1,11 +1,12 @@
-import { dbQuery, dbRun, dbGet, updateRow } from '../database';
-import { AccountGroupRow, AccountRow, AccountView } from '../types/accounts';
-import { badRequest, forbidden, notFound } from '../errors';
+import { dbQuery, dbRun, dbGet, updateRow, tx } from '../database';
+import { AccountRow, AccountView } from '../types/accounts';
+import { requireTagsExist } from './tag';
+import { forbidden, notFound } from '../errors';
 
-const ACCOUNT_COLUMNS = 'id, groupId, identifier, password, notes, createdAt, updatedAt, pinned';
+const ACCOUNT_COLUMNS = 'id, identifier, password, notes, createdAt, updatedAt, pinned';
 
 export interface AccountInput {
-    groupId: number | null;
+    tagIds: number[];
     identifier: string;
     password: string | null;
     notes: string | null;
@@ -17,38 +18,48 @@ export type AccountChanges = Partial<AccountInput>;
 const hasSecrets = (row: Pick<AccountRow, 'password' | 'notes'>): boolean => Boolean(row.password || row.notes);
 
 // Secrets only leave the server for a PIN-authenticated client.
-const toView = (row: AccountRow, isAuthenticated: boolean): AccountView =>
+const toView = (row: AccountRow, tagIds: number[], isAuthenticated: boolean): AccountView =>
     isAuthenticated || !hasSecrets(row)
-        ? { ...row, locked: false }
-        : { ...row, password: null, notes: null, locked: true };
+        ? { ...row, tagIds, locked: false }
+        : { ...row, tagIds, password: null, notes: null, locked: true };
+
+const tagIdsOf = (accountId: number): number[] =>
+    dbQuery('SELECT tagId FROM account_tag_links WHERE accountId = ?', [accountId]).map((row) => row.tagId);
 
 const getById = (id: number, isAuthenticated: boolean): AccountView =>
-    toView(dbGet(`SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE id = ?`, [id]), isAuthenticated);
+    toView(dbGet(`SELECT ${ACCOUNT_COLUMNS} FROM accounts WHERE id = ?`, [id]), tagIdsOf(id), isAuthenticated);
 
-const requireGroup = (groupId: number | null | undefined): void => {
-    if (groupId && !dbGet('SELECT 1 FROM account_groups WHERE id = ?', [groupId])) {
-        throw badRequest('Group does not exist.');
+const setTags = (accountId: number, tagIds: number[]): void => {
+    dbRun('DELETE FROM account_tag_links WHERE accountId = ?', [accountId]);
+    for (const tagId of tagIds) {
+        dbRun('INSERT INTO account_tag_links (accountId, tagId) VALUES (?, ?)', [accountId, tagId]);
     }
 };
 
-export function getAccounts(isAuthenticated: boolean): { groups: AccountGroupRow[]; accounts: AccountView[] } {
-    const accounts: AccountRow[] = dbQuery(`SELECT ${ACCOUNT_COLUMNS} FROM accounts ORDER BY pinned DESC, createdAt DESC`);
-    return {
-        groups: dbQuery('SELECT id, name, createdAt FROM account_groups ORDER BY name COLLATE NOCASE'),
-        accounts: accounts.map((row) => toView(row, isAuthenticated)),
-    };
+export function getAccounts(isAuthenticated: boolean): AccountView[] {
+    return tx(() => {
+        const accounts: AccountRow[] = dbQuery(`SELECT ${ACCOUNT_COLUMNS} FROM accounts ORDER BY pinned DESC, createdAt DESC`);
+        const tagIds = new Map<number, number[]>();
+        for (const { accountId, tagId } of dbQuery('SELECT accountId, tagId FROM account_tag_links')) {
+            tagIds.set(accountId, [...(tagIds.get(accountId) ?? []), tagId]);
+        }
+
+        return accounts.map((row) => toView(row, tagIds.get(row.id) ?? [], isAuthenticated));
+    });
 }
 
 export function createAccount(input: AccountInput, isAuthenticated: boolean): AccountView {
-    requireGroup(input.groupId);
+    requireTagsExist(input.tagIds);
     const now = new Date().toISOString();
 
-    const result = dbRun(
-        'INSERT INTO accounts (groupId, identifier, password, notes, pinned, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        [input.groupId, input.identifier, input.password, input.notes, input.pinned ? 1 : 0, now, now]
-    );
-
-    return getById(result.lastID, isAuthenticated);
+    return tx(() => {
+        const result = dbRun(
+            'INSERT INTO accounts (identifier, password, notes, pinned, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+            [input.identifier, input.password, input.notes, input.pinned ? 1 : 0, now, now]
+        );
+        setTags(result.lastID, input.tagIds);
+        return getById(result.lastID, isAuthenticated);
+    });
 }
 
 export function updateAccount(id: number, changes: AccountChanges, isAuthenticated: boolean): AccountView {
@@ -63,10 +74,13 @@ export function updateAccount(id: number, changes: AccountChanges, isAuthenticat
         throw forbidden('Unauthorized. Valid PIN required to change the password or notes.');
     }
 
-    requireGroup(changes.groupId);
-    updateRow('accounts', id, { ...changes });
-
-    return getById(id, isAuthenticated);
+    requireTagsExist(changes.tagIds);
+    const { tagIds, ...columns } = changes;
+    return tx(() => {
+        updateRow('accounts', id, columns);
+        if (tagIds) setTags(id, tagIds);
+        return getById(id, isAuthenticated);
+    });
 }
 
 export function countAccounts(): number {
@@ -84,30 +98,4 @@ export function deleteBatchAccounts(ids: number[]): number {
 
     const placeholders = ids.map(() => '?').join(',');
     return dbRun(`DELETE FROM accounts WHERE id IN (${placeholders})`, ids).changes;
-}
-
-const requireUniqueName = (name: string, exceptId = 0): void => {
-    if (dbGet('SELECT 1 FROM account_groups WHERE name = ? COLLATE NOCASE AND id != ?', [name, exceptId])) {
-        throw badRequest(`A group named "${name}" already exists.`);
-    }
-};
-
-export function createGroup(name: string): AccountGroupRow {
-    requireUniqueName(name);
-    const result = dbRun('INSERT INTO account_groups (name, createdAt) VALUES (?, ?)', [name, new Date().toISOString()]);
-    return dbGet('SELECT id, name, createdAt FROM account_groups WHERE id = ?', [result.lastID]);
-}
-
-export function renameGroup(id: number, name: string): AccountGroupRow {
-    requireUniqueName(name, id);
-    if (dbRun('UPDATE account_groups SET name = ? WHERE id = ?', [name, id]).changes === 0) {
-        throw notFound('Group');
-    }
-    return dbGet('SELECT id, name, createdAt FROM account_groups WHERE id = ?', [id]);
-}
-
-export function deleteGroup(id: number): void {
-    if (dbRun('DELETE FROM account_groups WHERE id = ?', [id]).changes === 0) {
-        throw notFound('Group');
-    }
 }

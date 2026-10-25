@@ -65,12 +65,6 @@ export function optionalChecklistItems(value: unknown, max: number): ChecklistIt
     });
 }
 
-export function optionalNullableId(value: unknown, field: string): number | null | undefined {
-    if (value === null || typeof value === 'undefined') return value;
-    if (!Number.isInteger(value) || (value as number) <= 0) throw badRequest(`${field} must be a positive integer or null.`);
-    return value as number;
-}
-
 export const isPositiveInteger = (value: unknown): boolean =>
     Number.isInteger(Number(value)) && Number(value) > 0;
 
@@ -82,4 +76,15 @@ export function requireIdParam(value: unknown, label: string): number {
     }
 
     return id;
+}
+
+export function optionalIdList(value: unknown, field: string, maxCount: number): number[] | undefined {
+    if (typeof value === 'undefined') return undefined;
+    if (!Array.isArray(value) || !value.every((id) => Number.isInteger(id) && id > 0)) {
+        throw badRequest(`${field} must be an array of positive integer IDs.`);
+    }
+
+    const ids = [...new Set(value as number[])];
+    if (ids.length > maxCount) throw badRequest(`${field} can contain at most ${maxCount} IDs.`);
+    return ids;
 }

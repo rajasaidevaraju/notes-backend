@@ -7,6 +7,7 @@ import notesRoutes from './notes';
 import checklistsRoutes from './checklists';
 import trackersRoutes from './trackers';
 import accountsRoutes from './accounts';
+import tagsRoutes from './tags';
 import contentRoutes from './content';
 
 const api = express.Router();
@@ -28,6 +29,7 @@ api.use('/notes', notesRoutes);
 api.use('/checklists', checklistsRoutes);
 api.use('/trackers', trackersRoutes);
 api.use('/accounts', accountsRoutes);
+api.use('/tags', tagsRoutes);
 api.use('/content', contentRoutes);
 api.use(authRoutes);
 
