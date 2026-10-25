@@ -100,6 +100,7 @@ function initializeDatabase(): void {
 
     CREATE TABLE IF NOT EXISTS accounts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT,
       identifier TEXT NOT NULL,
       password TEXT,
       notes TEXT,
@@ -141,6 +142,7 @@ function initializeDatabase(): void {
   addColumnIfNotExists('checklists', 'hidden', 'INTEGER DEFAULT 0');
   addColumnIfNotExists('checklists', 'archived', 'INTEGER DEFAULT 0');
   addColumnIfNotExists('trackers', 'archived', 'INTEGER DEFAULT 0');
+  addColumnIfNotExists('accounts', 'name', 'TEXT');
 
   tx(() => {
     for (const table of ['notes', 'checklists', 'trackers', 'checklist_items']) {

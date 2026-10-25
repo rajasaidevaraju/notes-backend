@@ -3,10 +3,11 @@ import { AccountRow, AccountView } from '../types/accounts';
 import { requireTagsExist } from './tag';
 import { forbidden, notFound } from '../errors';
 
-const ACCOUNT_COLUMNS = 'id, identifier, password, notes, createdAt, updatedAt, pinned';
+const ACCOUNT_COLUMNS = 'id, name, identifier, password, notes, createdAt, updatedAt, pinned';
 
 export interface AccountInput {
     tagIds: number[];
+    name: string | null;
     identifier: string;
     password: string | null;
     notes: string | null;
@@ -54,8 +55,8 @@ export function createAccount(input: AccountInput, isAuthenticated: boolean): Ac
 
     return tx(() => {
         const result = dbRun(
-            'INSERT INTO accounts (identifier, password, notes, pinned, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
-            [input.identifier, input.password, input.notes, input.pinned ? 1 : 0, now, now]
+            'INSERT INTO accounts (name, identifier, password, notes, pinned, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [input.name, input.identifier, input.password, input.notes, input.pinned ? 1 : 0, now, now]
         );
         setTags(result.lastID, input.tagIds);
         return getById(result.lastID, isAuthenticated);

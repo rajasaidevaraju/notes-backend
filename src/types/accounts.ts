@@ -1,5 +1,6 @@
 export interface AccountRow {
     id: number;
+    name: string | null;
     identifier: string;
     password: string | null;
     notes: string | null;
