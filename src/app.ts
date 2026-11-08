@@ -85,8 +85,8 @@ server.on('error', (err) => {
 
 function closeDatabase(): void {
   try {
-    if (db.open) {
-      db.pragma('optimize');
+    if (db.isOpen) {
+      db.exec('PRAGMA optimize');
       db.close();
     }
     console.log('sqlite database connection closed.');

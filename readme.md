@@ -1,6 +1,6 @@
 # Notes Backend
 
-Express 5 + TypeScript + SQLite (`better-sqlite3`) API for the notes app. It stores notes, checklists and trackers. In production it also serves the built frontend from `../notes-frontend/out`.
+Express 5 + TypeScript + SQLite (built-in `node:sqlite`, Node 22.13+) API for the notes app. It stores notes, checklists and trackers. In production it also serves the built frontend from `../notes-frontend/out`.
 
 ## Setup
 

@@ -1,4 +1,4 @@
-import Database, { Statement } from 'better-sqlite3';
+import { DatabaseSync, StatementSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
 import 'dotenv/config';
@@ -15,10 +15,12 @@ if (!fs.existsSync(dbDirectory)) {
   fs.mkdirSync(dbDirectory, { recursive: true });
 }
 
-const db = new Database(dbPath);
-db.pragma('foreign_keys = ON');
-db.pragma('journal_mode = WAL');
-db.pragma('synchronous = NORMAL');
+const db = new DatabaseSync(dbPath, { timeout: 5000 });
+db.exec(`
+  PRAGMA foreign_keys = ON;
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+`);
 
 function columnsOf(tableName: string): Set<string> {
   const tableInfo = db.prepare(`PRAGMA table_info(${tableName})`).all() as any[];
@@ -153,9 +155,9 @@ function initializeDatabase(): void {
 }
 
 const STATEMENT_CACHE_SIZE = 100;
-const statementCache = new Map<string, Statement>();
+const statementCache = new Map<string, StatementSync>();
 
-const prepare = (sql: string): Statement => {
+const prepare = (sql: string): StatementSync => {
   let stmt = statementCache.get(sql);
   if (stmt) {
     statementCache.delete(sql);
@@ -181,11 +183,32 @@ export const dbRun = (sql: string, params: any[] = []): { lastID: number; change
   const result = prepare(sql).run(...params);
   return {
     lastID: Number(result.lastInsertRowid),
-    changes: result.changes
+    changes: Number(result.changes)
   };
 };
 
-export const tx = <T>(fn: () => T): T => db.transaction(fn)();
+let txDepth = 0;
+
+export const tx = <T>(fn: () => T): T => {
+  const outermost = txDepth === 0;
+  const savepoint = `tx_${txDepth}`;
+  db.exec(outermost ? 'BEGIN' : `SAVEPOINT ${savepoint}`);
+  txDepth++;
+  try {
+    const result = fn();
+    db.exec(outermost ? 'COMMIT' : `RELEASE ${savepoint}`);
+    return result;
+  } catch (err) {
+    if (!outermost) {
+      db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+    } else if (db.isTransaction) {
+      db.exec('ROLLBACK');
+    }
+    throw err;
+  } finally {
+    txDepth--;
+  }
+};
 
 export const updateRow = (table: string, id: number, columns: Record<string, unknown>): void => {
   const set = Object.entries(columns).filter(([, value]) => typeof value !== 'undefined');

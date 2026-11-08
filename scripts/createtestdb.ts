@@ -7,7 +7,7 @@ fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
 process.env.DATABASE_PATH = testDbPath;
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { db, initializeDatabase } = require('../src/database');
+const { db, initializeDatabase, tx } = require('../src/database');
 
 interface DummyNote {
   title: string;
@@ -82,12 +82,11 @@ try {
   const insert = db.prepare(
     'INSERT INTO notes (title, content, createdAt, updatedAt, pinned, hidden) VALUES (?, ?, ?, ?, ?, ?)'
   );
-  const insertMany = db.transaction((notes: DummyNote[]) => {
-    for (const n of notes) {
+  tx(() => {
+    for (const n of dummyNotes) {
       insert.run(n.title, n.content, n.createdAt, n.updatedAt, n.pinned, n.hidden);
     }
   });
-  insertMany(dummyNotes);
 
   console.log(`Test database populated with ${dummyNotes.length} notes at ${testDbPath}`);
 } catch (e: any) {
