@@ -1,14 +1,9 @@
 import { DatabaseSync, StatementSync } from 'node:sqlite';
 import path from 'path';
 import fs from 'fs';
-import 'dotenv/config';
+import { env } from './config/env';
 
-const dbPath = process.env.DATABASE_PATH;
-
-if (!dbPath) {
-  console.error("DATABASE_PATH environment variable is not set.");
-  process.exit(1);
-}
+const dbPath = env.databasePath;
 
 const dbDirectory = path.dirname(dbPath);
 if (!fs.existsSync(dbDirectory)) {

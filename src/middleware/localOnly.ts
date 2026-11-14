@@ -1,8 +1,9 @@
+import type { IncomingMessage } from 'http';
 import { Request, Response, NextFunction } from 'express';
 import { forbidden } from '../errors';
 
 
-export const isRequestLocal = (req: Request): boolean => {
+export const isRequestLocal = (req: Pick<IncomingMessage, 'socket'>): boolean => {
     const ip = (req.socket.remoteAddress || '').replace(/^::ffff:/, '');
     return ip === '::1' || ip === '127.0.0.1' || ip === 'localhost';
 };

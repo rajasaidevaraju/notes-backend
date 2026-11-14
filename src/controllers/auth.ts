@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
 import { recordFailedPinAttempt, clearFailedPinAttempts } from '../middleware/rateLimiter';
 import { AppError, forbidden } from '../errors';
+import { env } from '../config/env';
 
 export const login = (req: Request, res: Response) => {
     const { pin } = req.body;
-    const correctPin = process.env.HIDDEN_NOTES_PIN;
+    const correctPin = env.hiddenNotesPin;
     const ip = req.ip;
 
     if (!ip) {
@@ -19,7 +20,7 @@ export const login = (req: Request, res: Response) => {
     res.cookie('auth_pin', pin, {
         httpOnly: true,
         sameSite: 'strict',
-        secure: false,
+        secure: env.tls !== null,
         maxAge: 24 * 60 * 60 * 1000,
         path: '/',
     });
@@ -30,12 +31,10 @@ export const login = (req: Request, res: Response) => {
 
 export const getStatus = (req: Request, res: Response) => {
     const pin = req.cookies['auth_pin'];
-    const correctPin = process.env.HIDDEN_NOTES_PIN;
-
-    res.json({ loggedIn: Boolean(correctPin) && pin === correctPin });
+    res.json({ loggedIn: pin === env.hiddenNotesPin });
 };
 
 export const logout = (req: Request, res: Response) => {
-    res.clearCookie('auth_pin', { path: '/' });
+    res.clearCookie('auth_pin', { path: '/', httpOnly: true, sameSite: 'strict', secure: env.tls !== null });
     res.status(200).json({ message: 'Logged out successfully' });
 };

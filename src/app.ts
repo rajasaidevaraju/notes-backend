@@ -1,12 +1,4 @@
-import dotenv from 'dotenv';
-dotenv.config();
-
-const hiddenNotesPin = process.env.HIDDEN_NOTES_PIN;
-if (!hiddenNotesPin || hiddenNotesPin.length !== 4) {
-  throw new Error(
-    'HIDDEN_NOTES_PIN must be set to a 4-character value. Refusing to start.'
-  );
-}
+import { env } from './config/env';
 
 import express from 'express';
 import cookieParser from 'cookie-parser';
@@ -15,12 +7,12 @@ import { db, initializeDatabase } from './database';
 import { requestGuard } from './middleware/requestGuard';
 import { lanGuard } from './middleware/lanGuard';
 import { errorHandler } from './middleware/errorHandler';
+import { startServer } from './server';
 import api from './routes';
 
 import * as NoteService from './services/note';
 
 const app = express();
-const port = process.env.PORT || 3002;
 
 app.set('trust proxy', false);
 
@@ -39,7 +31,7 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: `Cannot ${req.method} ${req.originalUrl}` });
 });
 
-if (process.env.NODE_ENV === 'production') {
+if (env.isProduction) {
   const frontendDir = path.join(__dirname, '../../notes-frontend/out');
   app.use(express.static(frontendDir, {
     setHeaders: (res, filePath) => {
@@ -69,19 +61,23 @@ try {
   process.exit(1);
 }
 
-const server = app.listen(port, () => {
-  console.log(`Server is running on http://localhost:${port}`);
-});
-if (process.env.NODE_ENV !== 'production') {
-  // WebSocket upgrades (Vite HMR) bypass the express middleware stack.
-  server.on('upgrade', devProxyUpgrade);
-}
-
-server.on('error', (err) => {
+let server: ReturnType<typeof startServer>;
+try {
+  server = startServer(app, {
+    port: env.port,
+    tls: env.tls,
+    // WebSocket upgrades (Vite HMR) bypass the express middleware stack.
+    onUpgrade: env.isProduction ? undefined : devProxyUpgrade,
+    onError: (err) => {
+      console.error('Server error:', err);
+      shutdown('server error', 1);
+    },
+  });
+} catch (err) {
   console.error('Server failed to start:', err);
-
-  if (!server.listening) process.exit(1);
-});
+  closeDatabase();
+  process.exit(1);
+}
 
 function closeDatabase(): void {
   try {
@@ -112,7 +108,6 @@ function shutdown(reason: string, exitCode: number): void {
     closeDatabase();
     process.exit(exitCode);
   });
-  server.closeIdleConnections();
 }
 
 process.on('SIGINT', () => shutdown('SIGINT', 0));

@@ -1,9 +1,10 @@
 import http from 'http';
 import { Duplex } from 'stream';
 import { Request, Response, NextFunction } from 'express';
+import { env } from '../config/env';
 
 const TARGET_HOST = 'localhost';
-const TARGET_PORT = Number(process.env.FRONTEND_DEV_PORT) || 3003;
+const TARGET_PORT = env.frontendDevPort;
 
 const UPSTREAM_DOWN =
     `Vite dev server is not reachable on http://${TARGET_HOST}:${TARGET_PORT}. ` +

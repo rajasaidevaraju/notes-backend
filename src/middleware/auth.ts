@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { unauthorized } from '../errors';
+import { env } from '../config/env';
 
 export const isAuthenticated = (req: Request): boolean => {
-    const correctPin = process.env.HIDDEN_NOTES_PIN;
-    return Boolean(correctPin) && req.cookies?.auth_pin === correctPin;
+    return req.cookies?.auth_pin === env.hiddenNotesPin;
 };
 
 export const requireAuth = (req: Request, _res: Response, next: NextFunction) => {
